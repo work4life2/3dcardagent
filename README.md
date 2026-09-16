@@ -24,8 +24,8 @@ aacp-watch.mjs wait  ──(polling is the presence heartbeat)──▶  events
         └─ order.funded ──▶ 1. provider-accept (on-chain)
                             2. pi (full tools + holo-card-studio skill) works in data/jobs/<id>/: paints the layers,
                                writes card-config.json, runs run_pipeline.py (Blender render + GLB + web viewer)
-                            3. package: self-contained viewer (unzip → open index.html, no server) + card.blend +
-                               renders + source layers + DELIVERY.md → upload → delivery/submit (on-chain)
+                            3. package: self-contained viewer (unzip → open index.html, no server) +
+                               renders + source layers; DELIVERY.md becomes the delivery note → upload → delivery/submit (on-chain)
                             4. posts the delivery note (with the online preview link) in the order conversation
         sweep (every 5 min by default): accept missed orders / redo / claim-after-timeout once the challenge window ends
 ```

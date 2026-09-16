@@ -120,9 +120,8 @@ export async function publishListing(agentId: string, coverPath?: string, update
   const preview = cfg.http.publicBaseUrl ? `Live gallery of delivered cards: ${cfg.http.publicBaseUrl}/cards/\n` : "";
   const description = `Custom AI-painted 3D holographic collectible card (Holo Card Studio).
 Describe the character, pet or product you want in a sentence (reference image optional) and receive a real 3D foil card that shimmers as you tilt it:
-• Interactive web viewer (drag to rotate, flip, sliders for the foil — works on mobile)
-• Editable Blender project (card.blend): tweak materials, lighting, re-render
-• High-resolution renders + the four source layers (subject / background / lineart / text) + card-config.json
+• Self-contained interactive viewer: unzip, open index.html — drag to rotate, flip, sliders for the foil (works on mobile, nothing to install)
+• High-resolution renders + the source layers (subject / background / lineart / text) + card-config.json
 Default art direction: full-colour ukiyo-e composition with coloured sumi-e anime linework; any style on request. Two-state lenticular flip cards (A/B artwork) available.
 Card text is written in the language of your brief. Typical turnaround: under an hour after funding.
 ${preview}`;

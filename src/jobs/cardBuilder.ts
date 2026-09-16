@@ -157,9 +157,9 @@ export async function buildCard(job: Job, extraInstructions?: string): Promise<B
 
 /**
  * Build the deliverable: a folder that opens from disk (index.html at the root), plus the
- * Blender project, renders, source layers, config and DELIVERY.md — zipped.
+ * renders, source layers and config — zipped. The Blender project stays in the job dir (not delivered).
  */
-export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: string; blend: string; preview?: string; note?: string }> {
+export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: string; preview?: string; note?: string }> {
   const distDir = path.join(job.dir, "dist");
   const pkg = path.join(distDir, "package");
   fs.rmSync(pkg, { recursive: true, force: true });
@@ -173,10 +173,8 @@ export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: st
       if (fs.statSync(s).isFile()) fs.copyFileSync(s, path.join(dest, f));
     }
   };
-  fs.copyFileSync(out.blend, path.join(pkg, "card.blend"));
   copyDir(path.join(job.dir, "renders"), path.join(pkg, "renders"));
   fs.copyFileSync(path.join(job.dir, "card-config.json"), path.join(pkg, "card-config.json"));
-  if (out.deliveryMd) fs.copyFileSync(out.deliveryMd, path.join(pkg, "DELIVERY.md"));
   fs.writeFileSync(
     path.join(pkg, "README.md"),
     `# Holo Card — ${String(out.config.title ?? job.id)}
@@ -188,15 +186,13 @@ Drag to rotate, F to flip, R to reset; the sliders tune the foil shimmer and par
 ## Files
 - index.html, embed.js, app.bundle.js, style.css   the interactive viewer (self-contained)
 - assets/           source PNG layers (subject / background / lineart / text, or the A/B pair)
-- card.blend        Blender project — tweak materials, lighting, re-render
 - renders/          rendered previews
 - card-config.json  title, edition, rarity, parallax parameters
-- DELIVERY.md       notes about this card
 `,
   );
   const zip = path.join(distDir, `${job.id}-holo-card.zip`);
   if (fs.existsSync(zip)) fs.unlinkSync(zip);
   const res = await run("zip", ["-r", "-q", zip, "."], { cwd: pkg, timeoutMs: 10 * 60_000 });
   if (res.code !== 0) throw new Error(`zip failed: ${res.stderr.slice(-400)}`);
-  return { zip, blend: out.blend, preview: out.hero, note: out.deliveryMd };
+  return { zip, preview: out.hero, note: out.deliveryMd };
 }

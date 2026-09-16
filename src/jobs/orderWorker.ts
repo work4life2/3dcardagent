@@ -136,16 +136,15 @@ async function uploadArtifact(job: Job, file: string, contentType: string, label
   return artifactId;
 }
 
-async function deliver(job: Job, pack: { zip: string; blend: string; preview?: string; note?: string }): Promise<void> {
+/** Two artifacts: the self-contained viewer zip and the preview render. DELIVERY.md goes into the delivery note. */
+async function deliver(job: Job, pack: { zip: string; preview?: string; note?: string }): Promise<void> {
   job.status = "delivering";
   job.artifacts = [];
   saveJob(job);
   const ids: string[] = [];
   ids.push(await uploadArtifact(job, pack.zip, "application/zip", "holo-card-project.zip"));
-  ids.push(await uploadArtifact(job, pack.blend, "application/octet-stream", "card.blend"));
   if (pack.preview) ids.push(await uploadArtifact(job, pack.preview, "image/png", "preview.png"));
-  if (pack.note) ids.push(await uploadArtifact(job, pack.note, "text/markdown", "DELIVERY.md"));
-  const noteText = `Delivered: interactive web viewer + Blender project + renders.${job.previewUrl ? ` Online preview: ${job.previewUrl}` : ""}`;
+  const noteText = deliveryNoteText(job, pack.note);
   const submit = await termix().api("POST", `/api/v1/orders/${job.orderId}/delivery/submit`, { artifactIds: ids, note: noteText });
   const tx = await termix().tx(intentFrom(submit), { orderId: job.orderId });
   const hash = tx.results?.[0]?.txHash;
@@ -157,12 +156,28 @@ async function deliver(job: Job, pack: { zip: string; blend: string; preview?: s
   saveJob(job);
 }
 
+/** The on-chain delivery note: how to open the package + the agent's DELIVERY.md, capped in length. */
+function deliveryNoteText(job: Job, deliveryMd?: string): string {
+  const zh = isChinese(job.brief);
+  const head = zh
+    ? `解压 zip 后双击 index.html 即可查看（无需安装）。${job.previewUrl ? `在线预览：${job.previewUrl}` : ""}`
+    : `Unzip and double-click index.html to view the card (nothing to install).${job.previewUrl ? ` Online preview: ${job.previewUrl}` : ""}`;
+  let body = "";
+  try {
+    if (deliveryMd) body = fs.readFileSync(deliveryMd, "utf8").trim();
+  } catch {
+    /* no notes */
+  }
+  const text = body ? `${head}\n\n${body}` : head;
+  return text.length > 3800 ? text.slice(0, 3790) + "…" : text;
+}
+
 /** Buyer-facing delivery notice in the language of the brief (English by default). */
 function deliveryNotice(job: Job): string {
   if (isChinese(job.brief)) {
-    return `✅ 您的闪卡已交付！${job.previewUrl ? `在线预览：${job.previewUrl}\n` : ""}交付包含：可交互网页查看器、Blender 工程 card.blend、渲染图与源图层。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。`;
+    return `✅ 您的闪卡已交付！${job.previewUrl ? `在线预览：${job.previewUrl}\n` : ""}交付物：一个 zip（解压后双击 index.html 即可交互查看，内含渲染图与源图层）和一张预览渲染图。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。`;
   }
-  return `✅ Your holographic card has been delivered!${job.previewUrl ? ` Online preview: ${job.previewUrl}\n` : " "}The delivery includes the interactive web viewer, the Blender project (card.blend), rendered previews and the source layers. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.`;
+  return `✅ Your holographic card has been delivered!${job.previewUrl ? ` Online preview: ${job.previewUrl}\n` : " "}Two files: a zip (unzip, double-click index.html for the interactive viewer; renders and source layers included) and a preview render. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.`;
 }
 
 /** Heuristic: does the buyer write in Chinese? */

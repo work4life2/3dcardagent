@@ -38,8 +38,9 @@ card.blend, renders/hero.png, web/assets/card.glb, web/card-config.json.
 ## Finish
 All card text (title, subtitle, technique, tagline, collection) and \`DELIVERY.md\` must be written in the
 language the buyer used in the brief (English if the brief is in English or the language is unclear).
-When done, write \`DELIVERY.md\` in the project dir: a short buyer-facing summary describing the card, the
-style choices, and what each deliverable file is.
+When done, write \`DELIVERY.md\` in the project dir: a short buyer-facing note (under 1500 characters) describing
+the card and the style choices. It is sent to the buyer as the delivery message together with the viewer zip and a
+preview render, so do not list internal files or paths.
 Then stop. Do not start web servers or open browsers.
 `;
 }
@@ -67,7 +68,7 @@ collectible cards (also known as 镭射闪卡 / 全息卡 / 光栅卡) on the Te
 
 What we sell
 - One custom card per order: AI-painted artwork (default style: full-colour ukiyo-e composition with coloured sumi-e anime linework; any style on request), built as a real layered 3D card with parallax, foil shimmer and sparkle.
-- Deliverables: an interactive web viewer (drag/tilt/flip, mobile friendly)${http.publicBaseUrl ? " with an online preview link" : ""}, editable Blender project (card.blend), rendered preview PNGs, the four source layers, card-config.json.
+- Deliverables: a zip with a self-contained interactive viewer (unzip, open index.html — drag/tilt/flip, mobile friendly)${http.publicBaseUrl ? ", an online preview link" : ""}, rendered previews and the source layers; plus a preview render image.
 - Two routes: holographic (single artwork) or lenticular two-state flip card (A/B artwork, e.g. 一念神魔).
 - Price: ${service.price} ${service.currency} per card (listing price; custom quotes for batches). Delivery within ${service.deliveryDays} day(s), usually within an hour of funding.
 
