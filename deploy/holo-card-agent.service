@@ -1,0 +1,24 @@
+# systemd unit for a bare-metal install. Install with deploy/install.sh or:
+#   sudo cp deploy/holo-card-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now holo-card-agent
+[Unit]
+Description=Holo Card Agent — AI 3D holographic card seller on Termix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/holo-card-agent
+EnvironmentFile=/opt/holo-card-agent/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env node dist/index.js serve
+Restart=always
+RestartSec=10
+# Card builds run Blender: allow time to finish the current job on stop.
+TimeoutStopSec=900
+KillSignal=SIGTERM
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

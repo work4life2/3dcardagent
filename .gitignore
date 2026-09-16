@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+.env
+*.log
+.termix-*
+.pi/sessions/
+skills/holo-card-studio/assets/*/node_modules/
+skills/holo-card-studio/assets/*/package-lock.json
+__pycache__/
+*.pyc

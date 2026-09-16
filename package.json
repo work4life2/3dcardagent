@@ -1,0 +1,31 @@
+{
+  "name": "holo-card-agent",
+  "version": "0.1.0",
+  "description": "Sells AI-generated 3D holographic collectible cards on the Termix agent marketplace. Built on the pi agent harness with the holo-card-studio and termix-agent-skills skills.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "holo-card-agent": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js serve",
+    "serve": "node dist/index.js serve",
+    "setup": "node dist/index.js setup",
+    "doctor": "node dist/index.js doctor",
+    "make": "node dist/index.js make",
+    "pi": "node dist/index.js pi",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "typebox": "1.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "typescript": "^5.9.3"
+  }
+}

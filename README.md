@@ -1,0 +1,141 @@
+# holo-card-agent
+
+把 **AI 3D 全息闪卡定制** 做成一个可以在 [Termix](https://termix.ai)（agent 雇 agent 的链上市场）上出售的服务。
+
+- 底层 agent 框架：[pi](https://pi.dev)（`@earendil-works/pi-coding-agent` SDK）
+- 能力 1：[holo-card-studio](https://github.com/EverettFish/holo-card-studio) —— 四层图 → Blender 全息卡 → Three.js 交互查看器
+- 能力 2：[termix-agent-skills](https://termix.ai/skills?v=1.8.0) v1.8.0 —— 账号连接、托管上线、接单、交付、领款
+- 部署形态：一个常驻进程（systemd / Docker），内置健康检查与在线预览画廊；网络受限时自动走本地代理（默认 `127.0.0.1:1080`）
+
+两个 skill 都原样 vendor 在 `skills/` 下，pi 直接加载它们；pi 缺的"图像生成工具"由本项目补上（`generate_image` / `edit_image` / `derive_lineart` / `chroma_key` / `inspect_image` …）。
+
+## 工作流程
+
+```
+买家在 Termix 购买 listing / 发消息
+        │
+        ▼
+aacp-watch.mjs wait  ──(轮询即在线心跳)──▶  事件
+        │
+        ├─ chat.message ──▶ pi（聊天模型，无工具）起草回复 ──▶ a2a-runtime.mjs reply
+        │
+        └─ order.funded ──▶ 1. provider-accept（上链）
+                            2. pi（完整工具 + holo-card-studio skill）在 data/jobs/<id>/ 生成四层图、
+                               写 card-config.json、跑 run_pipeline.py（Blender 渲染 + GLB + 网页）
+                            3. 打包 zip + card.blend + 预览图 + DELIVERY.md → 上传 → delivery/submit（上链）
+                            4. 在订单会话里发交付说明（含在线预览链接）
+        巡检（默认 5 分钟）：补漏接单 / redo 重做 / 挑战期过后 claim-after-timeout 领款
+```
+
+市场生命周期（接单、上传、上链、领款）由 TypeScript 确定性地执行，只有"创作"和"聊天"交给模型——便宜、可重试、可断点续传（任务状态持久化在 `data/jobs/<id>/job.json`）。
+
+## 环境要求
+
+- Node.js ≥ 22（内置 fetch 会读 `HTTP(S)_PROXY`）
+- Python 3 + Pillow；`fontconfig` + 中文字体（`fonts-noto-cjk`）；`zip`
+- Blender：不必手装，`npm run setup` 会下载官方便携版 4.5（SHA-256 校验）到 `data/blender/`；已装则直接复用
+- 一个 LLM（pi 支持的任意 provider，或 Anthropic 兼容中转）+ 一个图像生成 API（OpenAI `gpt-image-1` 推荐，支持透明背景；或 Gemini）
+
+## 快速开始
+
+```bash
+git clone <this repo> && cd 3dcardagent
+npm install --ignore-scripts
+npm run build
+cp .env.example .env         # 填 LLM / 图像 API / 链 / 代理
+npm run setup                # 预装 three.js、下载 Blender、体检
+npm run setup -- link        # 连接 Termix 网页账号（手机浏览器扫码授权）
+npm run setup -- agents      # 列出账号下的 agent → 把 id 写进 .env 的 A2A_AGENT_ID
+npm run setup -- listing     # 发布服务 listing（自动生成封面图）
+npm run make -- "一张赛博朋克机械猫闪卡，编号 No.007"   # 本地试跑一张，不接市场
+npm start                    # 托管上线，开始接单
+```
+
+`npm run doctor` 随时体检；`npm run pi` 打开交互式 pi（两个 skill + 图像工具已加载），可以用自然语言操作 Termix 或手工做卡。
+
+### 身份与签名（服务器无人值守的关键）
+
+Termix 有三种身份，优先级 **linked › agentic › key**：
+
+| 模式 | 怎么配 | 上链签名 | 适合 |
+|---|---|---|---|
+| linked | `npm run setup -- link`（或把网页授权的 key 放 `TERMIX_API_KEY`） | **人在浏览器签**：程序把签名链接打到日志和 `NOTIFY_WEBHOOK_URL`，15 分钟内签完即继续 | 用网站已注册的 agent，半自动 |
+| key | `.env`: `TERMIX_WALLET_MODE=key` + `WALLET_KEY=0x…`（专用热钱包，只放少量 BNB/ETH gas） | 本地自动签 | **完全无人值守** |
+| agentic | Binance Agentic Wallet（需要手机 App 确认） | App 里点确认 | 不推荐服务器用 |
+
+每条链（`AACP_CHAIN=bsc|base|rh`）是独立市场，agent、订单、余额互不相通。
+
+### 代理
+
+`PROXY_MODE=auto`（默认）：启动时探测 `PROXY_PROBE_URL` 直连，失败则检查 `PROXY_URL` 端口是否在监听，是就把 `HTTP(S)_PROXY` + `NODE_USE_ENV_PROXY=1` 导出给自己和所有子进程（pi 的模型请求、Termix 脚本的 fetch、Python 下载 Blender、npm）。运行中若直连请求失败还会再自动切一次。`always` / `off` 强制开关。`NO_PROXY` 默认排除 localhost。
+
+## 部署
+
+### systemd（裸机）
+
+```bash
+sudo deploy/install.sh /opt/holo-card-agent      # 装依赖、Node 22、字体、构建、注册服务
+# 编辑 /opt/holo-card-agent/.env，然后以服务用户执行 setup / link / agents / listing
+sudo systemctl start holo-card-agent && journalctl -fu holo-card-agent
+```
+
+### Docker
+
+```bash
+docker compose -f deploy/docker-compose.yml build
+docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup
+docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup link
+docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup listing
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+容器用 host 网络，这样能直接用宿主机的 `127.0.0.1:1080` 代理，画廊在 `:8787`。
+
+### HTTP 端点
+
+| 路径 | 说明 |
+|---|---|
+| `/health` | 健康检查（含代理状态、链、agent） |
+| `/cards/` | 已交付卡片画廊；`/cards/<jobId>/` 是可交互的 Three.js 查看器 |
+| `/api/jobs`、`/api/jobs/<id>` | 任务状态 |
+| `/jobs/<id>/renders/hero.png` | 渲染图 |
+
+配置 `PUBLIC_BASE_URL`（反代到 8787）后，交付说明和聊天回复里会带上在线预览链接。
+
+## 配置速查
+
+见 `.env.example`，重点：
+
+- `PI_MODEL` / `PI_CHAT_MODEL`：`provider/model[:thinking]`，如 `anthropic/claude-sonnet-4-5`、`openrouter/anthropic/claude-sonnet-4-5`。设置了 `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` 时自动注册 `anthropic-proxy` provider，`PI_MODEL=anthropic-proxy/<id>`。
+- `IMAGE_PROVIDER=openai|gemini|mock`（`mock` 仅用于无 API key 的联调）。
+- `SERVICE_*`：listing 的标题 / 价格 / 币种 / 交付天数 / 类目。
+- `JOB_CONCURRENCY`、`JOB_TIMEOUT_MINUTES`、`SWEEP_INTERVAL_SECONDS`。
+- `NOTIFY_WEBHOOK_URL`：签名请求、交付、失败等事件 POST 到这里（接 Bark / 飞书 / Slack 都行）。
+
+## 目录
+
+```
+src/
+  index.ts            CLI：serve / setup / doctor / make / deliver / jobs / pi
+  proxy.ts            代理探测与注入
+  termix/client.ts    封装 termix-agent-skills 的脚本（wait / api / tx / upload / reply）
+  agent/session.ts    用 pi SDK 创建会话：注入 skill、AGENTS.md、自定义工具、模型
+  agent/tools.ts      图像生成 / 编辑 / 线稿 / 抠图 / 检查工具（defineTool）
+  agent/imagegen.ts   OpenAI Images / Gemini / mock 后端
+  jobs/orderWorker.ts 订单生命周期：接单 → 生成 → 打包 → 上传 → 提交交付 → 领款
+  jobs/cardBuilder.ts 跑 agent、校验产物、打包
+  jobs/chat.ts        买家消息回复
+  hosting/loop.ts     托管循环 + 巡检
+  server/http.ts      健康检查 + 画廊
+skills/               两个 skill 原样 vendor
+tools/imgtool.py      Pillow 辅助（inspect / lineart / chroma-key / mock）
+deploy/               Dockerfile、compose、systemd、install.sh
+data/                 运行数据（任务、会话、凭据缓存、Blender）
+```
+
+## 注意事项
+
+- `make` 用 `mock` 图像后端已在本机跑通全链路（LLM 驱动 skill → Blender → 打包）。真实订单请配置 `openai` 或 `gemini`。
+- Termix 交付/接单是链上操作，需要 gas；`key` 模式钱包只放少量资金。
+- 挑战期没有自动结算，程序会在窗口结束后自动 `claim-after-timeout`。
+- skill 升级：`cd data/termix && node ../../skills/termix-agent-skills/scripts/aacp-update.mjs check`。

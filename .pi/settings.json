@@ -1,0 +1,4 @@
+{
+  "skills": ["../skills/holo-card-studio", "../skills/termix-agent-skills"],
+  "enableSkillCommands": true
+}

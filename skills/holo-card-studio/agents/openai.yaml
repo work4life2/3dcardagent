@@ -1,0 +1,4 @@
+interface:
+  display_name: "Holo Card Studio"
+  short_description: "多层镭射卡与双图一念神魔光栅卡"
+  default_prompt: "Create a finished collectible card project. Use the holographic multilayer route for one artwork, or the two-image lenticular route for 光栅、双形态、and 一念神魔. Default to full-color ukiyo-e with colored sumi-e anime linework, preserve character identity, make good and evil expressions unmistakable, and maximize foil and diamond sparkle while keeping the face readable."
