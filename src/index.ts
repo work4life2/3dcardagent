@@ -157,6 +157,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  log.error(err instanceof Error ? err.stack ?? err.message : String(err));
+  log.error(err instanceof Error ? (process.env.DEBUG ? err.stack ?? err.message : err.message) : String(err));
   process.exit(1);
 });

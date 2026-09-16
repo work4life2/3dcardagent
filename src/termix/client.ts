@@ -125,14 +125,38 @@ export class TermixClient {
     return this.json<Record<string, unknown>>("aacp-next.mjs", [], { allowFail: true });
   }
 
+  private loginPromise: Promise<Record<string, unknown>> | undefined;
+
+  /** Wallet login (nonce → sign with WALLET_KEY → cached session). Idempotent per process. */
   login() {
-    return this.json<Record<string, unknown>>("a2a-runtime.mjs", ["login"]);
+    this.loginPromise ??= this.json<Record<string, unknown>>("a2a-runtime.mjs", ["login"]).catch((e) => {
+      this.loginPromise = undefined;
+      throw e;
+    });
+    return this.loginPromise;
+  }
+
+  /** Run a session-authenticated command, logging in first (and once more if the session expired). */
+  private async withSession<T>(fn: () => Promise<T>): Promise<T> {
+    await this.login();
+    try {
+      return await fn();
+    } catch (err) {
+      if (/not logged in|401|UNAUTHORIZED|session/i.test(String(err))) {
+        this.loginPromise = undefined;
+        await this.login();
+        return await fn();
+      }
+      throw err;
+    }
   }
 
   agents() {
-    return this.json<{ count: number; items: Array<{ agentId: string; agentTokenId?: string; name: string; a2aStatus?: string }> }>(
-      "a2a-runtime.mjs",
-      ["agents"],
+    return this.withSession(() =>
+      this.json<{ count: number; items: Array<{ agentId: string; agentTokenId?: string; name: string; a2aStatus?: string }> }>(
+        "a2a-runtime.mjs",
+        ["agents"],
+      ),
     );
   }
 
@@ -154,7 +178,8 @@ export class TermixClient {
   ): Promise<T> {
     const args = [method, apiPath, "--auth", auth];
     if (body !== undefined) args.push("--body", JSON.stringify(body));
-    return this.json<T>("aacp-api.mjs", args, { timeoutMs: 120_000 });
+    const call = () => this.json<T>("aacp-api.mjs", args, { timeoutMs: 120_000 });
+    return auth === "none" ? call() : this.withSession(call);
   }
 
   get<T = unknown>(apiPath: string) {
@@ -166,6 +191,7 @@ export class TermixClient {
   /** Blocks until there is work or `timeoutSeconds` elapsed. */
   async wait(agentId: string, timeoutSeconds = 300, intervalSeconds = 10, extra: string[] = []): Promise<WatchResult> {
     const args = ["wait", "--agent", agentId, "--timeout", String(timeoutSeconds), "--interval", String(intervalSeconds), ...extra];
+    await this.login();
     const res = await this.node("aacp-watch.mjs", args, { timeoutMs: (timeoutSeconds + 120) * 1000 });
     const parsed = lastJson<WatchResult>(res.stdout);
     if (!parsed) {
@@ -180,7 +206,7 @@ export class TermixClient {
   }
 
   async ensureRuntimeToken(): Promise<void> {
-    await this.json("a2a-runtime.mjs", ["token"]);
+    await this.withSession(() => this.json("a2a-runtime.mjs", ["token"]));
   }
 
   async reply(conversationId: string, text: string, clientMessageId?: string): Promise<unknown> {
@@ -222,6 +248,7 @@ export class TermixClient {
    * Execute a tx-intent: key mode signs locally with WALLET_KEY and broadcasts (`--yes`).
    */
   async tx(intent: TxIntent | TxIntent[], context?: Record<string, unknown>): Promise<TxResult> {
+    await this.login();
     const args = Array.isArray(intent) ? ["--intents", JSON.stringify(intent)] : ["--intent", JSON.stringify(intent)];
     args.push("--yes");
     if (context) args.push("--context", JSON.stringify(context));

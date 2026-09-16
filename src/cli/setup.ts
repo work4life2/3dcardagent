@@ -53,7 +53,10 @@ export function exposeLocalBin(): void {
 }
 
 export async function listAgents(): Promise<void> {
-  const res = await termix().agents();
+  const t = termix();
+  const who = (await t.login()) as { wallet?: string; address?: string; handle?: string };
+  process.stdout.write(`钱包: ${who.wallet ?? who.address ?? "?"}${who.handle ? `  @${who.handle}` : ""}  链: ${getConfig().termix.chain}\n`);
+  const res = await t.agents();
   if (!res.items?.length) {
     process.stdout.write("该钱包下没有 agent。运行 `npm run setup -- mint <name> \"<显示名>\"` 铸造一个（需要 gas）。注意：key 模式是独立身份，看不到网站账号下注册的 agent。\n");
     return;
