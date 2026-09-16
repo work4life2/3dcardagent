@@ -7,6 +7,7 @@ import { cardBuildGuidelines, cardBuildPrompt } from "../agent/prompts.js";
 import { createCardSession } from "../agent/session.js";
 import { pickDefaultFont } from "../agent/fonts.js";
 import { getModels } from "../runtimeConfig.js";
+import { buildStandaloneViewer } from "./standalone.js";
 import type { Job } from "./store.js";
 import { saveJob } from "./store.js";
 
@@ -154,38 +155,48 @@ export async function buildCard(job: Job, extraInstructions?: string): Promise<B
   throw new Error(lastError || "build failed");
 }
 
-/** Zip the deliverable (web viewer without node_modules, renders, assets, config, DELIVERY.md, card.blend separately). */
+/**
+ * Build the deliverable: a folder that opens from disk (index.html at the root), plus the
+ * Blender project, renders, source layers, config and DELIVERY.md — zipped.
+ */
 export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: string; blend: string; preview?: string; note?: string }> {
   const distDir = path.join(job.dir, "dist");
-  fs.mkdirSync(distDir, { recursive: true });
-  const zip = path.join(distDir, `${job.id}-holo-card.zip`);
-  if (fs.existsSync(zip)) fs.unlinkSync(zip);
-  const readme = path.join(job.dir, "README-viewer.md");
+  const pkg = path.join(distDir, "package");
+  fs.rmSync(pkg, { recursive: true, force: true });
+  fs.mkdirSync(pkg, { recursive: true });
+  await buildStandaloneViewer(out.webDir, pkg, out.mode);
+  const copyDir = (src: string, dest: string) => {
+    if (!fs.existsSync(src)) return;
+    fs.mkdirSync(dest, { recursive: true });
+    for (const f of fs.readdirSync(src)) {
+      const s = path.join(src, f);
+      if (fs.statSync(s).isFile()) fs.copyFileSync(s, path.join(dest, f));
+    }
+  };
+  fs.copyFileSync(out.blend, path.join(pkg, "card.blend"));
+  copyDir(path.join(job.dir, "renders"), path.join(pkg, "renders"));
+  fs.copyFileSync(path.join(job.dir, "card-config.json"), path.join(pkg, "card-config.json"));
+  if (out.deliveryMd) fs.copyFileSync(out.deliveryMd, path.join(pkg, "DELIVERY.md"));
   fs.writeFileSync(
-    readme,
+    path.join(pkg, "README.md"),
     `# Holo Card — ${String(out.config.title ?? job.id)}
 
-## Web viewer
-\`\`\`
-cd web && npm install --ignore-scripts && node server.mjs
-\`\`\`
-Then open http://127.0.0.1:4173 — drag to rotate, flip the card, use the sliders to tune the foil shimmer.
+## View the card
+Open **index.html** in any modern browser (Chrome, Edge, Firefox, Safari) — no installation, no server.
+Drag to rotate, F to flip, R to reset; the sliders tune the foil shimmer and parallax.
 
 ## Files
-- web/             Three.js interactive viewer (includes assets/card.glb)
-- card.blend       Blender project — tweak materials, lighting, re-render
-- renders/         static renders
-- assets/          source layers (subject / background / lineart / text) or the A/B pair
-- card-config.json title, edition, rarity, parallax parameters
+- index.html, embed.js, app.bundle.js, style.css   the interactive viewer (self-contained)
+- assets/           source PNG layers (subject / background / lineart / text, or the A/B pair)
+- card.blend        Blender project — tweak materials, lighting, re-render
+- renders/          rendered previews
+- card-config.json  title, edition, rarity, parallax parameters
+- DELIVERY.md       notes about this card
 `,
   );
-  const entries = ["web", "renders", "assets", "card-config.json", "README-viewer.md"];
-  if (out.deliveryMd) entries.push("DELIVERY.md");
-  const present = entries.filter((e) => fs.existsSync(path.join(job.dir, e)));
-  const res = await run("zip", ["-r", "-q", zip, ...present, "-x", "web/node_modules/*", "web/node_modules", "*/__pycache__/*"], {
-    cwd: job.dir,
-    timeoutMs: 10 * 60_000,
-  });
+  const zip = path.join(distDir, `${job.id}-holo-card.zip`);
+  if (fs.existsSync(zip)) fs.unlinkSync(zip);
+  const res = await run("zip", ["-r", "-q", zip, "."], { cwd: pkg, timeoutMs: 10 * 60_000 });
   if (res.code !== 0) throw new Error(`zip failed: ${res.stderr.slice(-400)}`);
   return { zip, blend: out.blend, preview: out.hero, note: out.deliveryMd };
 }

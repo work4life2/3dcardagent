@@ -5,7 +5,8 @@ Sells **custom AI-generated 3D holographic collectible cards** as a service on [
 - Agent harness: [pi](https://pi.dev) (`@earendil-works/pi-coding-agent` SDK)
 - Capability 1: [holo-card-studio](https://github.com/EverettFish/holo-card-studio) — four image layers → Blender holographic card → Three.js interactive viewer
 - Capability 2: [termix-agent-skills](https://termix.ai/skills?v=1.8.0) v1.8.0 — hosting, orders, delivery, settlement
-- Deployment: one long-running process (systemd / Docker) with a health check and a live gallery
+- Deployment: one long-running process (systemd / Docker) with an operator dashboard, health check and live gallery
+- Scope: the service only touches orders sold by the hosted agent (`A2A_AGENT_ID`); other agents under the same wallet are ignored
 - Language: everything the service produces is English by default; the card text and the delivery note follow the language of the buyer's brief
 
 Both skills are vendored unchanged under `skills/`; pi loads them directly. The "built-in image-generation tool" the card skill assumes is provided by this project (`generate_image`, `edit_image`, `derive_lineart`, `chroma_key`, `inspect_image`, …).
@@ -23,7 +24,8 @@ aacp-watch.mjs wait  ──(polling is the presence heartbeat)──▶  events
         └─ order.funded ──▶ 1. provider-accept (on-chain)
                             2. pi (full tools + holo-card-studio skill) works in data/jobs/<id>/: paints the layers,
                                writes card-config.json, runs run_pipeline.py (Blender render + GLB + web viewer)
-                            3. package zip + card.blend + preview + DELIVERY.md → upload → delivery/submit (on-chain)
+                            3. package: self-contained viewer (unzip → open index.html, no server) + card.blend +
+                               renders + source layers + DELIVERY.md → upload → delivery/submit (on-chain)
                             4. posts the delivery note (with the online preview link) in the order conversation
         sweep (every 5 min by default): accept missed orders / redo / claim-after-timeout once the challenge window ends
 ```
@@ -77,7 +79,7 @@ npm run model -- thinking medium
 npm run model -- reset                                  # back to the .env defaults
 ```
 
-Same thing over HTTP: `GET /api/models`, `POST /api/models {"chatModel":"..."}` (loopback callers need nothing; remote callers send `x-admin-token: $ADMIN_TOKEN`). Overrides are stored in `data/runtime-config.json`.
+Same thing in the dashboard at `http://<host>:8787/` (models form with a list of every model your keys unlock) or over HTTP: `GET /api/models`, `POST /api/models {"chatModel":"..."}` (loopback callers need nothing; remote callers send `x-admin-token: $ADMIN_TOKEN`). Overrides are stored in `data/runtime-config.json`.
 
 ## Deployment
 
@@ -104,6 +106,7 @@ The container uses the host network; the gallery is on `:8787`. Both `.env` and 
 
 | Path | Purpose |
 |---|---|
+| `/` | operator dashboard: status, runtime model switching, jobs with viewer / render / zip links |
 | `/health` | health check (chain, agent) |
 | `/cards/` | gallery of delivered cards; `/cards/<jobId>/` is the interactive Three.js viewer |
 | `/api/jobs`, `/api/jobs/<id>` | job status |

@@ -58,6 +58,17 @@ export function extractBrief(order: Record<string, unknown>): { text: string; re
   return { text: uniq.join("\n"), refs: [...refs] };
 }
 
+/** Is this order sold by the agent we host? Orders of the wallet's other agents are none of our business. */
+export function ownsOrder(order: Order): boolean {
+  const agentId = getConfig().termix.agentId;
+  if (!agentId) return false;
+  const seller = (order.seller ?? order.providerAgent ?? {}) as { id?: string; agentId?: string; agentTokenId?: string | number };
+  const candidates = [seller.id, seller.agentId, order.providerAgentId, order.sellerAgentId].filter(Boolean).map(String);
+  if (candidates.includes(agentId)) return true;
+  if (seller.agentTokenId !== undefined && String(seller.agentTokenId) === agentId) return true;
+  return false;
+}
+
 function orderConversationId(order: Order): string | undefined {
   const c = order.conversationId ?? (order.conversation as { id?: string } | undefined)?.id;
   return typeof c === "string" ? c : undefined;
@@ -172,6 +183,12 @@ function previewUrlFor(job: Job): string | undefined {
 export async function processOrder(orderId: string, opts: { redoNote?: string } = {}): Promise<Job> {
   let order = await getOrder(orderId);
   let job = findJobByOrder(orderId);
+  if (!ownsOrder(order)) {
+    const seller = (order.seller ?? {}) as { id?: string; displayName?: string };
+    log.info(`order ${orderId}: sold by another agent (${seller.displayName ?? seller.id ?? "unknown"}), skipping`);
+    if (job) throw new Error(`order ${orderId} does not belong to the hosted agent`);
+    return { id: `skipped-${orderId}`, orderId, status: "failed", brief: "", refs: [], createdAt: "", updatedAt: "", attempts: 0, redoRound: 0, dir: "", artifacts: [], txHashes: {}, notes: ["not our order"] } as Job;
+  }
   const { text, refs } = extractBrief(order as Record<string, unknown>);
   if (!job) {
     const conv = orderConversationId(order);
@@ -245,6 +262,7 @@ export async function claimExpiredDeliveries(): Promise<number> {
   const items = Array.isArray(res) ? res : (res.items ?? []);
   let claimed = 0;
   for (const o of items) {
+    if (!ownsOrder(o)) continue;
     if (o.status !== "DELIVERED" || !o.challengeWindowEndsAt) continue;
     if (new Date(o.challengeWindowEndsAt).getTime() > Date.now()) continue;
     try {
@@ -273,6 +291,7 @@ export async function sweepOrders(): Promise<string[]> {
   const items = Array.isArray(res) ? res : (res.items ?? []);
   const actionable: string[] = [];
   for (const o of items) {
+    if (!ownsOrder(o)) continue;
     const job = findJobByOrder(o.id);
     if (o.status === "PENDING_ACCEPT") actionable.push(o.id);
     else if ((o.status === "FUNDED" || o.status === "IN_PROGRESS") && (!job || ["queued", "failed", "built", "accepting"].includes(job.status))) actionable.push(o.id);

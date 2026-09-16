@@ -33,10 +33,12 @@ function readOverrides(): Partial<ModelSettings> {
   }
 }
 
-export function getModels(): ModelSettings & { overrides: Partial<ModelSettings> } {
+export function getModels(): ModelSettings & { overrides: Partial<ModelSettings>; defaults: ModelSettings } {
   const cfg = getConfig();
   const o = readOverrides();
+  const defaults: ModelSettings = { buildModel: cfg.llm.model, chatModel: cfg.llm.chatModel, imageModel: cfg.image.gatewayModel, thinking: cfg.llm.thinking };
   return {
+    defaults,
     buildModel: o.buildModel || cfg.llm.model,
     chatModel: o.chatModel || cfg.llm.chatModel,
     imageModel: o.imageModel || cfg.image.gatewayModel,
@@ -55,6 +57,6 @@ export function setModels(patch: Partial<ModelSettings>): ModelSettings {
   }
   fs.mkdirSync(path.dirname(file()), { recursive: true });
   fs.writeFileSync(file(), JSON.stringify(current, null, 2));
-  const { overrides: _o, ...rest } = getModels();
+  const { overrides: _o, defaults: _d, ...rest } = getModels();
   return rest;
 }

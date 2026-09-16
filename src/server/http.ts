@@ -5,6 +5,11 @@ import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { listJobs, loadJob } from "../jobs/store.js";
 import { getModels, setModels, MODEL_KEYS, type ModelSettings } from "../runtimeConfig.js";
+import { dashboardHtml } from "./dashboard.js";
+import { imageProviderReady } from "../agent/imagegen.js";
+
+const startedAt = Date.now();
+const IMAGE_MODEL_SUGGESTIONS = ["openai/gpt-image-1-mini", "openai/gpt-image-1", "openai/gpt-image-1.5", "google/gemini-3.1-flash-lite-image", "google/gemini-3.1-flash-image", "google/gemini-2.5-flash-image", "bytedance/seedream-4.5", "bfl/flux-pro-1.1"];
 
 const log = logger("http");
 
@@ -62,6 +67,29 @@ export function startHttpServer(): http.Server {
     if (p === "/health" || p === "/healthz") {
       return send(res, 200, JSON.stringify({ ok: true, chain: cfg.termix.chain, agentId: cfg.termix.agentId || null, at: new Date().toISOString() }));
     }
+    if (p === "/api/status") {
+      const jobs = listJobs();
+      return send(res, 200, JSON.stringify({
+        chain: cfg.termix.chain,
+        agentId: cfg.termix.agentId || null,
+        walletConfigured: cfg.termix.hasWalletKey,
+        imageProvider: imageProviderReady().reason,
+        publicBaseUrl: cfg.http.publicBaseUrl || null,
+        service: cfg.service,
+        jobs: { total: jobs.length, active: jobs.filter((j) => ["queued", "accepting", "building", "delivering"].includes(j.status)).length, failed: jobs.filter((j) => j.status === "failed").length },
+        uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+      }));
+    }
+    if (p === "/api/models/options") {
+      import("../agent/session.js")
+        .then(async ({ modelRuntime }) => {
+          const rt = await modelRuntime();
+          const llm = (await rt.getAvailable()).map((m) => `${m.provider}/${m.id}`).sort();
+          send(res, 200, JSON.stringify({ llm, image: IMAGE_MODEL_SUGGESTIONS }));
+        })
+        .catch((err) => send(res, 500, JSON.stringify({ error: String(err) })));
+      return;
+    }
     if (p === "/api/models") {
       if (req.method === "GET") return send(res, 200, JSON.stringify(getModels()));
       if (req.method === "POST" || req.method === "PUT") {
@@ -92,7 +120,8 @@ export function startHttpServer(): http.Server {
       const j = loadJob(m[1]);
       return j ? send(res, 200, JSON.stringify(j)) : send(res, 404, "{}");
     }
-    if (p === "/" || p === "/cards" || p === "/cards/") return send(res, 200, galleryHtml(), "text/html; charset=utf-8");
+    if (p === "/" || p === "/admin" || p === "/admin/") return send(res, 200, dashboardHtml(), "text/html; charset=utf-8");
+    if (p === "/cards" || p === "/cards/") return send(res, 200, galleryHtml(), "text/html; charset=utf-8");
     const card = p.match(/^\/cards\/([^/]+)(\/.*)?$/);
     if (card) {
       const job = loadJob(card[1]);
@@ -112,6 +141,6 @@ export function startHttpServer(): http.Server {
     void jobsRoot;
     return send(res, 404, "not found", "text/plain");
   });
-  server.listen(cfg.http.port, cfg.http.host, () => log.info(`listening on http://${cfg.http.host}:${cfg.http.port} (gallery at /cards/)`));
+  server.listen(cfg.http.port, cfg.http.host, () => log.info(`listening on http://${cfg.http.host}:${cfg.http.port} (dashboard at /, gallery at /cards/)`));
   return server;
 }
