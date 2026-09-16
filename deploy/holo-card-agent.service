@@ -11,6 +11,7 @@ Type=simple
 User=%i
 WorkingDirectory=/opt/holo-card-agent
 EnvironmentFile=/opt/holo-card-agent/.env
+EnvironmentFile=-/opt/holo-card-agent/.env.local
 Environment=NODE_ENV=production
 ExecStart=/usr/bin/env node dist/index.js serve
 Restart=always

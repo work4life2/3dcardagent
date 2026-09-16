@@ -52,20 +52,10 @@ export function exposeLocalBin(): void {
   }
 }
 
-export async function setupLink(): Promise<void> {
-  const t = termix();
-  const status = await t.linkStatus();
-  process.stdout.write(`当前状态: ${JSON.stringify(status)}\n`);
-  process.stdout.write("\n正在申请把这台服务器连接到你的 Termix 网页账号。请在下面出现的链接里（手机/电脑浏览器均可）用注册时的钱包登录并核对代码：\n\n");
-  const res = await t.linkStart((s) => process.stderr.write(s));
-  const acct = (res as { account?: unknown }).account;
-  process.stdout.write(`\n✅ 已连接: ${JSON.stringify(acct ?? res)}\n提示：linked 模式下每次上链（接单、交付）都会生成一个签名链接，人需要在浏览器签名；配置 NOTIFY_WEBHOOK_URL 可把链接推送给你。若要完全无人值守，请改用 TERMIX_WALLET_MODE=key。\n`);
-}
-
 export async function listAgents(): Promise<void> {
   const res = await termix().agents();
   if (!res.items?.length) {
-    process.stdout.write("该账号下没有 agent。可在 Termix 网站注册，或运行 `npm run setup -- mint` 铸造一个（需要 gas）。\n");
+    process.stdout.write("该钱包下没有 agent。运行 `npm run setup -- mint <name> \"<显示名>\"` 铸造一个（需要 gas）。注意：key 模式是独立身份，看不到网站账号下注册的 agent。\n");
     return;
   }
   process.stdout.write("可托管的 agent：\n");
@@ -163,8 +153,8 @@ export async function fullSetup(): Promise<void> {
   if (next) process.stdout.write(`\nTermix 状态: ${JSON.stringify(next, null, 2).slice(0, 1500)}\n`);
   process.stdout.write(`
 下一步：
-  1. npm run setup -- link            # 连接 Termix 网页账号（或在 .env 配 TERMIX_WALLET_MODE=key + WALLET_KEY）
-  2. npm run setup -- agents          # 列出 agent，把 id 写入 .env 的 A2A_AGENT_ID（没有则 setup -- mint <name> "<显示名>"）
+  1. 在 .env.local 里放 WALLET_KEY=0x…（专用热钱包私钥，充少量 gas）和 AI_GATEWAY_API_KEY
+  2. npm run setup -- agents          # 列出该钱包的 agent，把 id 写入 .env 的 A2A_AGENT_ID（没有则 setup -- mint <name> "<显示名>"）
   3. npm run setup -- listing         # 发布服务 listing（自动生成封面）
   4. npm run make -- "一张赛博朋克机械猫闪卡，编号 No.007"   # 本地试跑一张卡
   5. npm start                        # 托管上线，开始接单

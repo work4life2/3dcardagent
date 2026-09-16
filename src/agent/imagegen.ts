@@ -3,6 +3,7 @@ import path from "node:path";
 import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { run } from "../util/exec.js";
+import { getModels } from "../runtimeConfig.js";
 
 const log = logger("imagegen");
 
@@ -128,6 +129,39 @@ async function geminiGenerate(o: GenerateOptions): Promise<GenerateResult> {
   };
 }
 
+/** Vercel AI Gateway via the AI SDK: one key, any image model (default openai/gpt-image-1-mini, supports alpha). */
+async function gatewayGenerate(o: GenerateOptions): Promise<GenerateResult> {
+  const { image } = getConfig();
+  if (!image.gatewayKey) throw new Error("AI_GATEWAY_API_KEY is not set (put it in .env.local)");
+  const { generateImage, gateway } = await import("ai");
+  const gatewayModel = getModels().imageModel;
+  const size = (o.size ?? "1024x1536") as `${number}x${number}`;
+  const isOpenAI = gatewayModel.startsWith("openai/");
+  const providerOptions: Record<string, Record<string, string>> = {};
+  if (isOpenAI) providerOptions.openai = { output_format: "png", ...(o.transparent ? { background: "transparent" } : {}) };
+  const prompt = o.images?.length
+    ? { text: o.prompt, images: o.images.map((p) => fs.readFileSync(p)), ...(o.maskPath ? { mask: fs.readFileSync(o.maskPath) } : {}) }
+    : o.prompt;
+  const result = await generateImage({
+    model: gateway.imageModel(gatewayModel),
+    prompt,
+    size,
+    providerOptions,
+    abortSignal: AbortSignal.timeout(300_000),
+  });
+  const buf = Buffer.from(result.image.uint8Array);
+  fs.mkdirSync(path.dirname(o.outPath), { recursive: true });
+  fs.writeFileSync(o.outPath, buf);
+  return {
+    path: o.outPath,
+    provider: "gateway",
+    model: gatewayModel,
+    bytes: buf.length,
+    transparentRequested: Boolean(o.transparent),
+    transparentSupported: isOpenAI,
+  };
+}
+
 async function mockGenerate(o: GenerateOptions): Promise<GenerateResult> {
   const [w, h] = (o.size ?? "1024x1536").split("x");
   const { toolsDir } = getConfig();
@@ -143,7 +177,11 @@ export async function generateImage(o: GenerateOptions): Promise<GenerateResult>
   const { image } = getConfig();
   log.info(`generate via ${image.provider}`, { out: path.basename(o.outPath), transparent: !!o.transparent, refs: o.images?.length ?? 0 });
   const started = Date.now();
-  const result = image.provider === "mock" ? await mockGenerate(o) : image.provider === "gemini" ? await geminiGenerate(o) : await openaiGenerate(o);
+  const result =
+    image.provider === "mock" ? await mockGenerate(o)
+    : image.provider === "gemini" ? await geminiGenerate(o)
+    : image.provider === "openai" ? await openaiGenerate(o)
+    : await gatewayGenerate(o);
   log.info(`generated ${path.basename(o.outPath)} in ${Math.round((Date.now() - started) / 1000)}s (${result.bytes} bytes)`);
   return result;
 }
@@ -151,6 +189,8 @@ export async function generateImage(o: GenerateOptions): Promise<GenerateResult>
 export function imageProviderReady(): { ok: boolean; reason: string } {
   const { image } = getConfig();
   if (image.provider === "mock") return { ok: true, reason: "mock (Pillow placeholders — testing only, not for real orders)" };
+  if (image.provider === "gateway")
+    return image.gatewayKey ? { ok: true, reason: `vercel-ai-gateway ${getModels().imageModel}` } : { ok: false, reason: "AI_GATEWAY_API_KEY missing (.env.local)" };
   if (image.provider === "gemini") return image.geminiKey ? { ok: true, reason: `gemini/${image.geminiModel}` } : { ok: false, reason: "GEMINI_API_KEY missing" };
   return image.openaiKey
     ? { ok: true, reason: `openai/${image.openaiModel} @ ${image.openaiBaseUrl}` }

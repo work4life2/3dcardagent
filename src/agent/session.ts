@@ -12,6 +12,7 @@ import {
 import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { createHoloTools, HOLO_TOOL_NAMES } from "./tools.js";
+import { getModels } from "../runtimeConfig.js";
 
 const log = logger("pi");
 
@@ -26,7 +27,8 @@ export function ensureModelsJson(): void {
   const file = path.join(cfg.agentDir, "models.json");
   if (!baseUrl || !token) return;
   const wanted = new Set<string>();
-  for (const m of [cfg.llm.model, cfg.llm.chatModel]) {
+  const models = getModels();
+  for (const m of [models.buildModel, models.chatModel]) {
     const [provider, ...rest] = m.split("/");
     if (provider === "anthropic-proxy" && rest.length) wanted.add(rest.join("/").split(":")[0]);
   }
@@ -94,7 +96,8 @@ export interface CardSessionOptions {
 /** A full tool-using session with the holo-card-studio skill, working inside `cwd`. */
 export async function createCardSession(o: CardSessionOptions) {
   const cfg = getConfig();
-  const { model, thinkingLevel } = await resolveModel(cfg.llm.model);
+  const models = getModels();
+  const { model, thinkingLevel } = await resolveModel(models.buildModel);
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: true },
     retry: { enabled: true, maxRetries: 4 },
@@ -120,7 +123,7 @@ export async function createCardSession(o: CardSessionOptions) {
     cwd: o.cwd,
     agentDir: cfg.agentDir,
     model,
-    thinkingLevel: (thinkingLevel ?? cfg.llm.thinking) as never,
+    thinkingLevel: (thinkingLevel ?? models.thinking) as never,
     modelRuntime: await modelRuntime(),
     tools: ["read", "bash", "edit", "write", "grep", "find", "ls", ...HOLO_TOOL_NAMES],
     customTools: createHoloTools(o.cwd),
@@ -140,7 +143,7 @@ export async function createCardSession(o: CardSessionOptions) {
 /** A tools-free session for drafting chat replies. */
 export async function createChatSession(systemPrompt: string) {
   const cfg = getConfig();
-  const { model } = await resolveModel(cfg.llm.chatModel);
+  const { model } = await resolveModel(getModels().chatModel);
   const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: true, maxRetries: 3 } });
   const loader = new DefaultResourceLoader({
     cwd: cfg.dataDir,

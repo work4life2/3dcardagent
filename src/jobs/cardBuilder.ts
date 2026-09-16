@@ -6,6 +6,7 @@ import { run } from "../util/exec.js";
 import { cardBuildGuidelines, cardBuildPrompt } from "../agent/prompts.js";
 import { createCardSession } from "../agent/session.js";
 import { pickDefaultFont } from "../agent/fonts.js";
+import { getModels } from "../runtimeConfig.js";
 import type { Job } from "./store.js";
 import { saveJob } from "./store.js";
 
@@ -132,7 +133,7 @@ export async function buildCard(job: Job, extraInstructions?: string): Promise<B
         : `The previous attempt did not produce a complete project. Problem: ${lastError}\n\nFix it and finish the build. The brief is unchanged:\n${job.brief}\n${extraInstructions ?? ""}`;
     const timer = setTimeout(() => void session.abort(), Math.max(60_000, deadline - Date.now()));
     try {
-      log.info(`job ${job.id}: agent attempt ${attempt} started (model ${cfg.llm.model})`);
+      log.info(`job ${job.id}: agent attempt ${attempt} started (model ${getModels().buildModel})`);
       await session.prompt(prompt);
     } finally {
       clearTimeout(timer);

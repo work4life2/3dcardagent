@@ -4,6 +4,7 @@ import path from "node:path";
 import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { listJobs, loadJob } from "../jobs/store.js";
+import { getModels, setModels, MODEL_KEYS, type ModelSettings } from "../runtimeConfig.js";
 
 const log = logger("http");
 
@@ -60,6 +61,28 @@ export function startHttpServer(): http.Server {
     const p = decodeURIComponent(url.pathname);
     if (p === "/health" || p === "/healthz") {
       return send(res, 200, JSON.stringify({ ok: true, chain: cfg.termix.chain, agentId: cfg.termix.agentId || null, at: new Date().toISOString() }));
+    }
+    if (p === "/api/models") {
+      if (req.method === "GET") return send(res, 200, JSON.stringify(getModels()));
+      if (req.method === "POST" || req.method === "PUT") {
+        // Switching models is an operator action: require ADMIN_TOKEN, or a loopback caller.
+        const token = process.env.ADMIN_TOKEN;
+        const local = /^(127\.|::1|::ffff:127\.)/.test(req.socket.remoteAddress ?? "");
+        if (!(token && req.headers["x-admin-token"] === token) && !(!token && local)) return send(res, 403, JSON.stringify({ error: "forbidden" }));
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", () => {
+          try {
+            const patch = JSON.parse(body || "{}") as Partial<ModelSettings>;
+            const clean: Partial<ModelSettings> = {};
+            for (const k of MODEL_KEYS) if (typeof patch[k] === "string") clean[k] = patch[k];
+            send(res, 200, JSON.stringify(setModels(clean)));
+          } catch (err) {
+            send(res, 400, JSON.stringify({ error: String(err) }));
+          }
+        });
+        return;
+      }
     }
     if (p === "/api/jobs") {
       return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, previewUrl, error }) => ({ id, orderId, status, createdAt, updatedAt, previewUrl, error }))));

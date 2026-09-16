@@ -12,7 +12,9 @@ function usage(): never {
 
 用法:
   holo-card-agent serve                       托管上线：接单 → 生成闪卡 → 交付（常驻）
-  holo-card-agent setup [link|agents|mint <name> "<显示名>"|listing [cover.png]|deps]
+  holo-card-agent setup [agents|mint <name> "<显示名>"|listing [cover.png]|deps]
+  holo-card-agent model [show|build <id>|chat <id>|image <id>|thinking <lvl>|reset]
+                                              运行时切换模型（立即生效，无需重启 serve）
   holo-card-agent doctor                      环境与配置体检
   holo-card-agent make "<需求描述>" [--ref <图片路径或URL>] [--name <jobId>]
                                               本地生成一张卡（不接市场），用于测试
@@ -59,7 +61,6 @@ async function main() {
       const s = await import("./cli/setup.js");
       const sub = rest[0];
       if (!sub) await s.fullSetup();
-      else if (sub === "link") await s.setupLink();
       else if (sub === "agents") await s.listAgents();
       else if (sub === "deps") {
         await s.installWebDeps();
@@ -110,6 +111,26 @@ async function main() {
       const { processOrder } = await import("./jobs/orderWorker.js");
       const job = await processOrder(rest[0], { redoNote: rest[1] });
       process.stdout.write(JSON.stringify({ id: job.id, status: job.status, previewUrl: job.previewUrl, tx: job.txHashes }, null, 2) + "\n");
+      break;
+    }
+    case "model": {
+      const { getModels, setModels, MODEL_KEYS } = await import("./runtimeConfig.js");
+      const sub = rest[0] ?? "show";
+      const map: Record<string, (typeof MODEL_KEYS)[number]> = { build: "buildModel", chat: "chatModel", image: "imageModel", thinking: "thinking" };
+      if (sub === "show") {
+        const m = getModels();
+        process.stdout.write(`build    ${m.buildModel}${m.overrides.buildModel ? "" : "  (env default)"}\nchat     ${m.chatModel}${m.overrides.chatModel ? "" : "  (env default)"}\nimage    ${m.imageModel}${m.overrides.imageModel ? "" : "  (env default)"}\nthinking ${m.thinking}${m.overrides.thinking ? "" : "  (env default)"}\n`);
+      } else if (sub === "reset") {
+        setModels({ buildModel: "", chatModel: "", imageModel: "", thinking: "" });
+        process.stdout.write("已恢复为 .env 默认值\n");
+      } else if (map[sub] && rest[1]) {
+        if (sub !== "image" && sub !== "thinking") {
+          const { resolveModel } = await import("./agent/session.js");
+          await resolveModel(rest[1]); // fail fast on unknown model ids
+        }
+        const m = setModels({ [map[sub]]: rest[1] });
+        process.stdout.write(`✅ ${sub} → ${m[map[sub]]}（新会话立即生效）\n`);
+      } else usage();
       break;
     }
     case "jobs": {

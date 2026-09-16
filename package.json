@@ -17,11 +17,13 @@
     "setup": "node dist/index.js setup",
     "doctor": "node dist/index.js doctor",
     "make": "node dist/index.js make",
+    "model": "node dist/index.js model",
     "pi": "node dist/index.js pi",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.1",
+    "ai": "^7.0.102",
     "typebox": "1.3.7"
   },
   "devDependencies": {

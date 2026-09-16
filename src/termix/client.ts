@@ -3,7 +3,6 @@ import fs from "node:fs";
 import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { lastJson, run, type ExecResult } from "../util/exec.js";
-import { notify } from "../notify.js";
 
 const log = logger("termix");
 
@@ -82,7 +81,8 @@ export class TermixClient {
 
   private env(): NodeJS.ProcessEnv {
     const cfg = getConfig();
-    const e: NodeJS.ProcessEnv = { AACP_CHAIN: cfg.termix.chain };
+    // Key mode only: the service signs locally with the provider hot wallet (WALLET_KEY).
+    const e: NodeJS.ProcessEnv = { AACP_CHAIN: cfg.termix.chain, TERMIX_WALLET_MODE: "key" };
     if (cfg.termix.agentId) e.A2A_AGENT_ID = cfg.termix.agentId;
     return e;
   }
@@ -120,18 +120,6 @@ export class TermixClient {
   }
 
   // ─── identity / setup ──────────────────────────────────────────────
-
-  linkStatus() {
-    return this.json<Record<string, unknown>>("aacp-link.mjs", ["status"], { allowFail: true });
-  }
-
-  /** Blocks until the user approves on the website. stderr carries the code + URL. */
-  linkStart(onStderr: (s: string) => void, label = "holo-card-agent") {
-    return this.json<Record<string, unknown>>("aacp-link.mjs", ["start", "--label", label], {
-      onStderr,
-      timeoutMs: 15 * 60 * 1000,
-    });
-  }
 
   next() {
     return this.json<Record<string, unknown>>("aacp-next.mjs", [], { allowFail: true });
@@ -231,22 +219,13 @@ export class TermixClient {
   // ─── on-chain ──────────────────────────────────────────────────────
 
   /**
-   * Execute a tx-intent. In key/agentic mode `--yes` broadcasts; in linked mode the script
-   * opens a sign page and blocks until the operator signs in the browser — the URL is
-   * forwarded to the notify webhook so an unattended server can still get a human to sign.
+   * Execute a tx-intent: key mode signs locally with WALLET_KEY and broadcasts (`--yes`).
    */
   async tx(intent: TxIntent | TxIntent[], context?: Record<string, unknown>): Promise<TxResult> {
     const args = Array.isArray(intent) ? ["--intents", JSON.stringify(intent)] : ["--intent", JSON.stringify(intent)];
     args.push("--yes");
     if (context) args.push("--context", JSON.stringify(context));
-    let signUrl: string | undefined;
     const onStderr = (s: string) => {
-      const m = s.match(/https?:\/\/\S+\/sign\?id=\S+/);
-      if (m && m[0] !== signUrl) {
-        signUrl = m[0];
-        log.warn(`on-chain step needs the operator's signature in the browser: ${signUrl}`, context);
-        void notify("sign.required", { url: signUrl, ...context });
-      }
       for (const line of s.split("\n")) if (line.trim()) log.debug(line.trim());
     };
     const result = await this.json<TxResult>("aacp-tx.mjs", args, { timeoutMs: 20 * 60 * 1000, onStderr });

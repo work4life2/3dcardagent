@@ -5,6 +5,7 @@ import { run } from "../util/exec.js";
 import { imageProviderReady } from "../agent/imagegen.js";
 import { modelRuntime, resolveModel } from "../agent/session.js";
 import { termix } from "../termix/client.js";
+import { getModels } from "../runtimeConfig.js";
 
 export interface Check {
   name: string;
@@ -42,24 +43,27 @@ export async function runDoctor(opts: { network?: boolean } = { network: true })
 
   try {
     const rt = await modelRuntime();
-    const { model } = await resolveModel(cfg.llm.model);
+    const models = getModels();
+    const { model } = await resolveModel(models.buildModel);
     const auth = await rt.checkAuth(model.provider);
     const ok = Boolean((auth as { available?: boolean; ok?: boolean }).available ?? (auth as { ok?: boolean }).ok ?? auth);
-    add("LLM model", ok, `${model.provider}/${model.id}${ok ? "" : " — no credentials (set the provider API key)"}`);
+    add("LLM build model", ok, `${model.provider}/${model.id}${ok ? "" : " — no credentials (set the provider API key)"}`);
+    const chat = await resolveModel(models.chatModel);
+    const chatAuth = await rt.checkAuth(chat.model.provider);
+    const chatOk = Boolean((chatAuth as { available?: boolean; ok?: boolean }).available ?? (chatAuth as { ok?: boolean }).ok ?? chatAuth);
+    add("LLM chat model", chatOk, `${chat.model.provider}/${chat.model.id}`);
   } catch (err) {
     add("LLM model", false, String(err instanceof Error ? err.message : err));
   }
 
   if (opts.network !== false) {
     const t = termix();
-    const link = await t.linkStatus().catch(() => undefined);
-    const linked = Boolean((link as { linked?: boolean; status?: string } | undefined)?.linked ?? (link as { status?: string } | undefined)?.status === "linked");
-    const keyMode = cfg.termix.walletMode === "key" && cfg.termix.hasWalletKey;
-    add(
-      "termix identity",
-      linked || keyMode || Boolean(cfg.termix.apiKey),
-      linked ? `linked to web account (${JSON.stringify((link as Record<string, unknown>).account ?? (link as Record<string, unknown>).handle ?? "")})` : keyMode ? "key mode (WALLET_KEY)" : cfg.termix.apiKey ? "TERMIX_API_KEY" : "not linked — run `npm run setup -- link`",
-    );
+    add("termix wallet", cfg.termix.hasWalletKey, cfg.termix.hasWalletKey ? `key mode, chain ${cfg.termix.chain}` : "WALLET_KEY not set — put the provider hot-wallet private key in .env.local");
+    if (cfg.termix.hasWalletKey) {
+      const login = await t.login().catch((e) => ({ error: String(e) }));
+      const l = login as { wallet?: string; address?: string; handle?: string; error?: string };
+      add("termix login", !l.error, l.error ? l.error.split("\n").pop() ?? "failed" : `wallet ${l.wallet ?? l.address ?? ""} ${l.handle ? "@" + l.handle : ""}`.trim());
+    }
     add("termix agent", Boolean(cfg.termix.agentId), cfg.termix.agentId || "A2A_AGENT_ID not set — run `npm run setup -- agents`");
     const cfgRes = await t.node("aacp-config.mjs", [], { timeoutMs: 60_000 });
     add("termix backend", cfgRes.code === 0, cfgRes.code === 0 ? `chain ${cfg.termix.chain} reachable` : cfgRes.stderr.trim().split("\n").pop() ?? "unreachable", false);

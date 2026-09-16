@@ -41,14 +41,16 @@ export interface Config {
   agentDir: string;
   llm: { model: string; chatModel: string; thinking: string };
   image: {
-    provider: "openai" | "gemini" | "mock";
+    provider: "gateway" | "openai" | "gemini" | "mock";
+    gatewayKey: string;
+    gatewayModel: string;
     openaiKey: string;
     openaiBaseUrl: string;
     openaiModel: string;
     geminiKey: string;
     geminiModel: string;
   };
-  termix: { chain: string; agentId: string; apiKey: string; walletMode: string; hasWalletKey: boolean };
+  termix: { chain: string; agentId: string; hasWalletKey: boolean };
   http: { port: number; host: string; publicBaseUrl: string };
   jobs: { timeoutMinutes: number; concurrency: number; sweepIntervalSeconds: number; notifyWebhook: string };
   service: {
@@ -65,11 +67,12 @@ let cached: Config | undefined;
 
 export function getConfig(): Config {
   if (cached) return cached;
+  loadDotEnv(path.join(ROOT, ".env.local")); // secrets (git-ignored), takes precedence
   loadDotEnv();
   const dataDir = path.resolve(ROOT, env("DATA_DIR", "./data"));
   const skillsDir = path.join(ROOT, "skills");
-  const providerRaw = env("IMAGE_PROVIDER", "openai").toLowerCase();
-  const provider = providerRaw === "gemini" ? "gemini" : providerRaw === "mock" ? "mock" : "openai";
+  const providerRaw = env("IMAGE_PROVIDER", "gateway").toLowerCase();
+  const provider = providerRaw === "gemini" ? "gemini" : providerRaw === "mock" ? "mock" : providerRaw === "openai" ? "openai" : "gateway";
   cached = {
     root: ROOT,
     dataDir,
@@ -79,12 +82,14 @@ export function getConfig(): Config {
     toolsDir: path.join(ROOT, "tools"),
     agentDir: path.resolve(ROOT, env("PI_CODING_AGENT_DIR", path.join(dataDir, "pi-agent"))),
     llm: {
-      model: env("PI_MODEL", "anthropic/claude-sonnet-4-5"),
-      chatModel: env("PI_CHAT_MODEL", env("PI_MODEL", "anthropic/claude-sonnet-4-5")),
+      model: env("PI_MODEL", "vercel-ai-gateway/google/gemini-3-flash"),
+      chatModel: env("PI_CHAT_MODEL", env("PI_MODEL", "vercel-ai-gateway/google/gemini-3.1-flash-lite")),
       thinking: env("PI_THINKING", "medium"),
     },
     image: {
       provider,
+      gatewayKey: env("AI_GATEWAY_API_KEY"),
+      gatewayModel: env("GATEWAY_IMAGE_MODEL", "openai/gpt-image-1-mini"),
       openaiKey: env("OPENAI_IMAGE_API_KEY", env("OPENAI_API_KEY")),
       openaiBaseUrl: env("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1").replace(/\/+$/, ""),
       openaiModel: env("OPENAI_IMAGE_MODEL", "gpt-image-1"),
@@ -94,8 +99,6 @@ export function getConfig(): Config {
     termix: {
       chain: env("AACP_CHAIN", "bsc"),
       agentId: env("A2A_AGENT_ID"),
-      apiKey: env("TERMIX_API_KEY"),
-      walletMode: env("TERMIX_WALLET_MODE"),
       hasWalletKey: Boolean(env("WALLET_KEY")),
     },
     http: {

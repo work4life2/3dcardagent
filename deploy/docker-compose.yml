@@ -11,6 +11,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../.env
+      - path: ../.env.local
+        required: false
     environment:
       DATA_DIR: /data
       HTTP_HOST: 0.0.0.0
@@ -19,7 +21,6 @@ services:
       - holo-data:/data
     # one-off setup inside the container:
     #   docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup
-    #   docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup link
     #   docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup listing
 
 volumes:

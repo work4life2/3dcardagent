@@ -34,7 +34,7 @@ aacp-watch.mjs wait  ──(轮询即在线心跳)──▶  事件
 - Node.js ≥ 22
 - Python 3 + Pillow；`fontconfig` + 中文字体（`fonts-noto-cjk`）；`zip`
 - Blender：不必手装，`npm run setup` 会下载官方便携版 4.5（SHA-256 校验）到 `data/blender/`；已装则直接复用
-- 一个 LLM（pi 支持的任意 provider，或 Anthropic 兼容中转）+ 一个图像生成 API（OpenAI `gpt-image-1` 推荐，支持透明背景；或 Gemini）
+- 一把 [Vercel AI Gateway](https://vercel.com/ai-gateway) key（`npx vercel ai-gateway setup` 写入 `.env.local`），对话和生图默认都走它；也可以直接填 Anthropic / OpenAI / Gemini 的 key
 
 ## 快速开始
 
@@ -42,10 +42,11 @@ aacp-watch.mjs wait  ──(轮询即在线心跳)──▶  事件
 git clone <this repo> && cd 3dcardagent
 npm install --ignore-scripts
 npm run build
-cp .env.example .env         # 填 LLM / 图像 API / 链
+cp .env.example .env         # 填链、服务信息；模型默认已选好性价比款
+npx vercel ai-gateway setup  # 把 AI_GATEWAY_API_KEY 写进 .env.local（git 已忽略）
 npm run setup                # 预装 three.js、下载 Blender、体检
-npm run setup -- link        # 连接 Termix 网页账号（手机浏览器扫码授权）
-npm run setup -- agents      # 列出账号下的 agent → 把 id 写进 .env 的 A2A_AGENT_ID
+# 在 .env.local 放 WALLET_KEY=0x…（热钱包私钥）
+npm run setup -- agents      # 列出钱包下的 agent → 把 id 写进 .env 的 A2A_AGENT_ID（没有则 setup -- mint）
 npm run setup -- listing     # 发布服务 listing（自动生成封面图）
 npm run make -- "一张赛博朋克机械猫闪卡，编号 No.007"   # 本地试跑一张，不接市场
 npm start                    # 托管上线，开始接单
@@ -53,17 +54,28 @@ npm start                    # 托管上线，开始接单
 
 `npm run doctor` 随时体检；`npm run pi` 打开交互式 pi（两个 skill + 图像工具已加载），可以用自然语言操作 Termix 或手工做卡。
 
-### 身份与签名（服务器无人值守的关键）
+### 身份与签名（密钥模式，完全无人值守）
 
-Termix 有三种身份，优先级 **linked › agentic › key**：
+程序固定使用 Termix 的 **key 模式**：一个专用热钱包的私钥放在 `.env.local` 的 `WALLET_KEY`，接单、提交交付、挑战期后领款都由程序本地签名并广播，不需要人在浏览器确认。
 
-| 模式 | 怎么配 | 上链签名 | 适合 |
-|---|---|---|---|
-| linked | `npm run setup -- link`（或把网页授权的 key 放 `TERMIX_API_KEY`） | **人在浏览器签**：程序把签名链接打到日志和 `NOTIFY_WEBHOOK_URL`，15 分钟内签完即继续 | 用网站已注册的 agent，半自动 |
-| key | `.env`: `TERMIX_WALLET_MODE=key` + `WALLET_KEY=0x…`（专用热钱包，只放少量 BNB/ETH gas） | 本地自动签 | **完全无人值守** |
-| agentic | Binance Agentic Wallet（需要手机 App 确认） | App 里点确认 | 不推荐服务器用 |
+- 钱包只充少量 gas（BSC 为 BNB），收入按 Termix 结算规则进入该钱包对应的 treasury。
+- key 模式是独立身份，看不到你在 Termix 网站上注册的 agent；用 `npm run setup -- mint <name> "<显示名>"` 在这个钱包下铸造一个（需要 gas），再 `npm run setup -- agents` 拿到 id。
+- 每条链（`AACP_CHAIN=bsc|base|rh`）是独立市场，agent、订单、余额互不相通。
 
-每条链（`AACP_CHAIN=bsc|base|rh`）是独立市场，agent、订单、余额互不相通。
+### 运行时切换模型
+
+模型默认值在 `.env`（按性价比选好），运行中可随时切换、立即对新会话生效，不用重启：
+
+```bash
+npm run model -- show                                   # 当前生效的 build / chat / image / thinking
+npm run model -- chat  vercel-ai-gateway/openai/gpt-5-mini
+npm run model -- build vercel-ai-gateway/anthropic/claude-haiku-4.5
+npm run model -- image google/gemini-3.1-flash-lite-image
+npm run model -- thinking medium
+npm run model -- reset                                  # 回到 .env 默认
+```
+
+同样的操作也有 HTTP 接口：`GET /api/models`、`POST /api/models {"chatModel":"..."}`（本机回环直接可用，远程需带 `x-admin-token: $ADMIN_TOKEN`）。覆盖值保存在 `data/runtime-config.json`。
 
 ## 部署
 
@@ -71,7 +83,7 @@ Termix 有三种身份，优先级 **linked › agentic › key**：
 
 ```bash
 sudo deploy/install.sh /opt/holo-card-agent      # 装依赖、Node 22、字体、构建、注册服务
-# 编辑 /opt/holo-card-agent/.env，然后以服务用户执行 setup / link / agents / listing
+# 编辑 /opt/holo-card-agent/.env，然后以服务用户执行 setup / agents / listing
 sudo systemctl start holo-card-agent && journalctl -fu holo-card-agent
 ```
 
@@ -80,7 +92,6 @@ sudo systemctl start holo-card-agent && journalctl -fu holo-card-agent
 ```bash
 docker compose -f deploy/docker-compose.yml build
 docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup
-docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup link
 docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup listing
 docker compose -f deploy/docker-compose.yml up -d
 ```
@@ -102,11 +113,12 @@ docker compose -f deploy/docker-compose.yml up -d
 
 见 `.env.example`，重点：
 
-- `PI_MODEL` / `PI_CHAT_MODEL`：`provider/model[:thinking]`，如 `anthropic/claude-sonnet-4-5`、`openrouter/anthropic/claude-sonnet-4-5`。设置了 `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` 时自动注册 `anthropic-proxy` provider，`PI_MODEL=anthropic-proxy/<id>`。
-- `IMAGE_PROVIDER=openai|gemini|mock`（`mock` 仅用于无 API key 的联调）。
+- `AI_GATEWAY_API_KEY`（放 `.env.local`）：Vercel AI Gateway，一把 key 覆盖对话与生图。`examples/ai-gateway/index.ts` 是最小示例：`node --env-file=.env.local --experimental-strip-types examples/ai-gateway/index.ts`。
+- `PI_MODEL` / `PI_CHAT_MODEL`：`provider/model[:thinking]`。默认按性价比选 `vercel-ai-gateway/google/gemini-3-flash`（做卡）和 `vercel-ai-gateway/google/gemini-3.1-flash-lite`（聊天），`.env.example` 里有价格对照表。也支持 `anthropic/claude-sonnet-4-5`、`openai/gpt-5-mini` 等直连；设置了 `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` 时自动注册 `anthropic-proxy` provider。
+- `IMAGE_PROVIDER=gateway|openai|gemini|mock`，默认 `gateway`（Vercel AI Gateway，`GATEWAY_IMAGE_MODEL` 默认 `openai/gpt-image-1-mini`）；`mock` 仅用于无 API key 的联调。
 - `SERVICE_*`：listing 的标题 / 价格 / 币种 / 交付天数 / 类目。
 - `JOB_CONCURRENCY`、`JOB_TIMEOUT_MINUTES`、`SWEEP_INTERVAL_SECONDS`。
-- `NOTIFY_WEBHOOK_URL`：签名请求、交付、失败等事件 POST 到这里（接 Bark / 飞书 / Slack 都行）。
+- `NOTIFY_WEBHOOK_URL`：交付、失败、领款等事件 POST 到这里（接 Bark / 飞书 / Slack 都行）。
 
 ## 目录
 
@@ -131,6 +143,6 @@ data/                 运行数据（任务、会话、凭据缓存、Blender）
 ## 注意事项
 
 - `make` 用 `mock` 图像后端已在本机跑通全链路（LLM 驱动 skill → Blender → 打包）。真实订单请配置 `openai` 或 `gemini`。
-- Termix 交付/接单是链上操作，需要 gas；`key` 模式钱包只放少量资金。
+- Termix 交付/接单是链上操作，需要 gas；热钱包只放少量资金。
 - 挑战期没有自动结算，程序会在窗口结束后自动 `claim-after-timeout`。
 - skill 升级：`cd data/termix && node ../../skills/termix-agent-skills/scripts/aacp-update.mjs check`。

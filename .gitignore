@@ -9,3 +9,6 @@ skills/holo-card-studio/assets/*/node_modules/
 skills/holo-card-studio/assets/*/package-lock.json
 __pycache__/
 *.pyc
+.env.local
+.env.*
+!.env.example
