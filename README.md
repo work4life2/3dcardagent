@@ -1,89 +1,91 @@
 # holo-card-agent
 
-把 **AI 3D 全息闪卡定制** 做成一个可以在 [Termix](https://termix.ai)（agent 雇 agent 的链上市场）上出售的服务。
+Sells **custom AI-generated 3D holographic collectible cards** as a service on [Termix](https://termix.ai), the on-chain marketplace where agents hire agents.
 
-- 底层 agent 框架：[pi](https://pi.dev)（`@earendil-works/pi-coding-agent` SDK）
-- 能力 1：[holo-card-studio](https://github.com/EverettFish/holo-card-studio) —— 四层图 → Blender 全息卡 → Three.js 交互查看器
-- 能力 2：[termix-agent-skills](https://termix.ai/skills?v=1.8.0) v1.8.0 —— 账号连接、托管上线、接单、交付、领款
-- 部署形态：一个常驻进程（systemd / Docker），内置健康检查与在线预览画廊
+- Agent harness: [pi](https://pi.dev) (`@earendil-works/pi-coding-agent` SDK)
+- Capability 1: [holo-card-studio](https://github.com/EverettFish/holo-card-studio) — four image layers → Blender holographic card → Three.js interactive viewer
+- Capability 2: [termix-agent-skills](https://termix.ai/skills?v=1.8.0) v1.8.0 — hosting, orders, delivery, settlement
+- Deployment: one long-running process (systemd / Docker) with a health check and a live gallery
+- Language: everything the service produces is English by default; the card text and the delivery note follow the language of the buyer's brief
 
-两个 skill 都原样 vendor 在 `skills/` 下，pi 直接加载它们；pi 缺的"图像生成工具"由本项目补上（`generate_image` / `edit_image` / `derive_lineart` / `chroma_key` / `inspect_image` …）。
+Both skills are vendored unchanged under `skills/`; pi loads them directly. The "built-in image-generation tool" the card skill assumes is provided by this project (`generate_image`, `edit_image`, `derive_lineart`, `chroma_key`, `inspect_image`, …).
 
-## 工作流程
+## How it works
 
 ```
-买家在 Termix 购买 listing / 发消息
+buyer buys the listing / sends a message on Termix
         │
         ▼
-aacp-watch.mjs wait  ──(轮询即在线心跳)──▶  事件
+aacp-watch.mjs wait  ──(polling is the presence heartbeat)──▶  events
         │
-        ├─ chat.message ──▶ pi（聊天模型，无工具）起草回复 ──▶ a2a-runtime.mjs reply
+        ├─ chat.message ──▶ pi (chat model, no tools) drafts a reply ──▶ a2a-runtime.mjs reply
         │
-        └─ order.funded ──▶ 1. provider-accept（上链）
-                            2. pi（完整工具 + holo-card-studio skill）在 data/jobs/<id>/ 生成四层图、
-                               写 card-config.json、跑 run_pipeline.py（Blender 渲染 + GLB + 网页）
-                            3. 打包 zip + card.blend + 预览图 + DELIVERY.md → 上传 → delivery/submit（上链）
-                            4. 在订单会话里发交付说明（含在线预览链接）
-        巡检（默认 5 分钟）：补漏接单 / redo 重做 / 挑战期过后 claim-after-timeout 领款
+        └─ order.funded ──▶ 1. provider-accept (on-chain)
+                            2. pi (full tools + holo-card-studio skill) works in data/jobs/<id>/: paints the layers,
+                               writes card-config.json, runs run_pipeline.py (Blender render + GLB + web viewer)
+                            3. package zip + card.blend + preview + DELIVERY.md → upload → delivery/submit (on-chain)
+                            4. posts the delivery note (with the online preview link) in the order conversation
+        sweep (every 5 min by default): accept missed orders / redo / claim-after-timeout once the challenge window ends
 ```
 
-市场生命周期（接单、上传、上链、领款）由 TypeScript 确定性地执行，只有"创作"和"聊天"交给模型——便宜、可重试、可断点续传（任务状态持久化在 `data/jobs/<id>/job.json`）。
+The marketplace lifecycle (accept, upload, sign, claim) is deterministic TypeScript; only painting and chatting go to a model. Jobs are persisted in `data/jobs/<id>/job.json`, so a restart resumes where it stopped.
 
-## 环境要求
+## Requirements
 
 - Node.js ≥ 22
-- Python 3 + Pillow；`fontconfig` + 中文字体（`fonts-noto-cjk`）；`zip`
-- Blender：不必手装，`npm run setup` 会下载官方便携版 4.5（SHA-256 校验）到 `data/blender/`；已装则直接复用
-- 一把 [Vercel AI Gateway](https://vercel.com/ai-gateway) key（`npx vercel ai-gateway setup` 写入 `.env.local`），对话和生图默认都走它；也可以直接填 Anthropic / OpenAI / Gemini 的 key
+- Python 3 + Pillow; `fontconfig` + a CJK font (`fonts-noto-cjk`); `zip`
+- Blender: not required up front. `npm run setup` downloads the official portable 4.5 build (SHA-256 verified) into `data/blender/`; an installed Blender is reused
+- A [Vercel AI Gateway](https://vercel.com/ai-gateway) key (`AI_GATEWAY_API_KEY` in `.env.local`) — chat and image generation both default to it. Direct Anthropic / OpenAI / Gemini keys work too
+- A dedicated hot wallet private key (`WALLET_KEY` in `.env.local`) with a little gas for on-chain accept / deliver / claim
 
-## 快速开始
+## Quick start
 
 ```bash
-git clone <this repo> && cd 3dcardagent
+git clone git@github.com:work4life2/3dcardagent.git && cd 3dcardagent
 npm install --ignore-scripts
 npm run build
-cp .env.example .env         # 填链、服务信息；模型默认已选好性价比款
-npx vercel ai-gateway setup  # 把 AI_GATEWAY_API_KEY 写进 .env.local（git 已忽略）
-npm run setup                # 预装 three.js、下载 Blender、体检
-# 在 .env.local 放 WALLET_KEY=0x…（热钱包私钥）
-npm run setup -- agents      # 列出钱包下的 agent → 把 id 写进 .env 的 A2A_AGENT_ID（没有则 setup -- mint）
-npm run setup -- listing     # 发布服务 listing（自动生成封面图）
-npm run make -- "一张赛博朋克机械猫闪卡，编号 No.007"   # 本地试跑一张，不接市场
-npm start                    # 托管上线，开始接单
+cp .env.example .env           # chain, listing info; models already default to cost-effective picks
+#   put AI_GATEWAY_API_KEY=... and WALLET_KEY=0x... into .env.local (git-ignored)
+npm run setup                  # pre-install three.js, download Blender, run the doctor
+npm run setup -- agents        # list this wallet's agents → put the id into A2A_AGENT_ID in .env
+#   no agent yet?  npm run setup -- mint <name> "<display name>"   (needs gas)
+npm run setup -- listing       # publish the service listing (cover image is generated)
+npm run make -- "a cyberpunk mechanical cat card, edition No.007"   # build one card locally, no marketplace
+npm start                      # go online and take orders
 ```
 
-`npm run doctor` 随时体检；`npm run pi` 打开交互式 pi（两个 skill + 图像工具已加载），可以用自然语言操作 Termix 或手工做卡。
+`npm run doctor` checks the environment any time. `npm run pi` opens interactive pi with both skills and the image tools loaded, so you can operate Termix or build cards by hand in natural language.
 
-### 身份与签名（密钥模式，完全无人值守）
+### Identity: key mode, fully unattended
 
-程序固定使用 Termix 的 **key 模式**：一个专用热钱包的私钥放在 `.env.local` 的 `WALLET_KEY`，接单、提交交付、挑战期后领款都由程序本地签名并广播，不需要人在浏览器确认。
+The service always uses Termix **key mode**: the hot wallet in `WALLET_KEY` signs order acceptance, delivery submission and post-challenge-window claims locally. No browser confirmation is ever needed.
 
-- 钱包只充少量 gas（BSC 为 BNB），收入按 Termix 结算规则进入该钱包对应的 treasury。
-- key 模式是独立身份，看不到你在 Termix 网站上注册的 agent；用 `npm run setup -- mint <name> "<显示名>"` 在这个钱包下铸造一个（需要 gas），再 `npm run setup -- agents` 拿到 id。
-- 每条链（`AACP_CHAIN=bsc|base|rh`）是独立市场，agent、订单、余额互不相通。
+- Fund the wallet with a small gas balance only (BNB on BSC). Earnings settle to that wallet's treasury per Termix rules.
+- Key mode is a standalone identity: it cannot see agents registered under a Termix website account. Mint one under this wallet with `npm run setup -- mint`.
+- Each chain (`AACP_CHAIN=bsc|base|rh`) is a separate marketplace: agents, orders and balances do not cross over.
 
-### 运行时切换模型
+### Switching models at runtime
 
-模型默认值在 `.env`（按性价比选好），运行中可随时切换、立即对新会话生效，不用重启：
+Defaults live in `.env` (picked for cost-effectiveness). Switch at any time; new sessions pick it up immediately, no restart:
 
 ```bash
-npm run model -- show                                   # 当前生效的 build / chat / image / thinking
+npm run model -- show                                   # effective build / chat / image / thinking
 npm run model -- chat  vercel-ai-gateway/openai/gpt-5-mini
 npm run model -- build vercel-ai-gateway/anthropic/claude-haiku-4.5
 npm run model -- image google/gemini-3.1-flash-lite-image
 npm run model -- thinking medium
-npm run model -- reset                                  # 回到 .env 默认
+npm run model -- reset                                  # back to the .env defaults
 ```
 
-同样的操作也有 HTTP 接口：`GET /api/models`、`POST /api/models {"chatModel":"..."}`（本机回环直接可用，远程需带 `x-admin-token: $ADMIN_TOKEN`）。覆盖值保存在 `data/runtime-config.json`。
+Same thing over HTTP: `GET /api/models`, `POST /api/models {"chatModel":"..."}` (loopback callers need nothing; remote callers send `x-admin-token: $ADMIN_TOKEN`). Overrides are stored in `data/runtime-config.json`.
 
-## 部署
+## Deployment
 
-### systemd（裸机）
+### systemd (bare metal)
 
 ```bash
-sudo deploy/install.sh /opt/holo-card-agent      # 装依赖、Node 22、字体、构建、注册服务
-# 编辑 /opt/holo-card-agent/.env，然后以服务用户执行 setup / agents / listing
+sudo deploy/install.sh /opt/holo-card-agent      # packages, Node 22, fonts, build, service registration
+# edit /opt/holo-card-agent/.env and .env.local, then run setup / agents / listing as the service user
 sudo systemctl start holo-card-agent && journalctl -fu holo-card-agent
 ```
 
@@ -96,53 +98,56 @@ docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup listi
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-容器用 host 网络，画廊在 `:8787`。
+The container uses the host network; the gallery is on `:8787`. Both `.env` and `.env.local` are read.
 
-### HTTP 端点
+### HTTP endpoints
 
-| 路径 | 说明 |
+| Path | Purpose |
 |---|---|
-| `/health` | 健康检查（含链、agent） |
-| `/cards/` | 已交付卡片画廊；`/cards/<jobId>/` 是可交互的 Three.js 查看器 |
-| `/api/jobs`、`/api/jobs/<id>` | 任务状态 |
-| `/jobs/<id>/renders/hero.png` | 渲染图 |
+| `/health` | health check (chain, agent) |
+| `/cards/` | gallery of delivered cards; `/cards/<jobId>/` is the interactive Three.js viewer |
+| `/api/jobs`, `/api/jobs/<id>` | job status |
+| `/api/models` | read / switch models |
+| `/jobs/<id>/renders/hero.png` | render |
 
-配置 `PUBLIC_BASE_URL`（反代到 8787）后，交付说明和聊天回复里会带上在线预览链接。
+With `PUBLIC_BASE_URL` set (reverse-proxied to 8787), delivery notes and chat replies include the online preview link.
 
-## 配置速查
+## Configuration
 
-见 `.env.example`，重点：
+See `.env.example`. Highlights:
 
-- `AI_GATEWAY_API_KEY`（放 `.env.local`）：Vercel AI Gateway，一把 key 覆盖对话与生图。`examples/ai-gateway/index.ts` 是最小示例：`node --env-file=.env.local --experimental-strip-types examples/ai-gateway/index.ts`。
-- `PI_MODEL` / `PI_CHAT_MODEL`：`provider/model[:thinking]`。默认按性价比选 `vercel-ai-gateway/google/gemini-3-flash`（做卡）和 `vercel-ai-gateway/google/gemini-3.1-flash-lite`（聊天），`.env.example` 里有价格对照表。也支持 `anthropic/claude-sonnet-4-5`、`openai/gpt-5-mini` 等直连；设置了 `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` 时自动注册 `anthropic-proxy` provider。
-- `IMAGE_PROVIDER=gateway|openai|gemini|mock`，默认 `gateway`（Vercel AI Gateway，`GATEWAY_IMAGE_MODEL` 默认 `openai/gpt-image-1-mini`）；`mock` 仅用于无 API key 的联调。
-- `SERVICE_*`：listing 的标题 / 价格 / 币种 / 交付天数 / 类目。
-- `JOB_CONCURRENCY`、`JOB_TIMEOUT_MINUTES`、`SWEEP_INTERVAL_SECONDS`。
-- `NOTIFY_WEBHOOK_URL`：交付、失败、领款等事件 POST 到这里（接 Bark / 飞书 / Slack 都行）。
+- `AI_GATEWAY_API_KEY` (in `.env.local`): Vercel AI Gateway for chat and images. `examples/ai-gateway/index.ts` is the minimal AI SDK example: `node --env-file=.env.local --experimental-strip-types examples/ai-gateway/index.ts`.
+- `PI_MODEL` / `PI_CHAT_MODEL`: `provider/model[:thinking]`. Defaults `vercel-ai-gateway/google/gemini-3-flash` (building) and `vercel-ai-gateway/google/gemini-3.1-flash-lite` (chat); `.env.example` has a price table. Direct providers (`anthropic/claude-sonnet-4-5`, `openai/gpt-5-mini`, …) and an Anthropic-compatible relay (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` → provider `anthropic-proxy`) are supported.
+- `IMAGE_PROVIDER=gateway|openai|gemini|mock`, default `gateway` with `GATEWAY_IMAGE_MODEL=openai/gpt-image-1-mini`; `mock` is for key-less dry runs only.
+- `SERVICE_*`: listing title / price / currency / delivery days / category.
+- `JOB_CONCURRENCY`, `JOB_TIMEOUT_MINUTES`, `SWEEP_INTERVAL_SECONDS`.
+- `NOTIFY_WEBHOOK_URL`: delivery, failure and claim events are POSTed here (Slack, Feishu, Bark, …).
 
-## 目录
+## Layout
 
 ```
 src/
-  index.ts            CLI：serve / setup / doctor / make / deliver / jobs / pi
-  termix/client.ts    封装 termix-agent-skills 的脚本（wait / api / tx / upload / reply）
-  agent/session.ts    用 pi SDK 创建会话：注入 skill、AGENTS.md、自定义工具、模型
-  agent/tools.ts      图像生成 / 编辑 / 线稿 / 抠图 / 检查工具（defineTool）
-  agent/imagegen.ts   OpenAI Images / Gemini / mock 后端
-  jobs/orderWorker.ts 订单生命周期：接单 → 生成 → 打包 → 上传 → 提交交付 → 领款
-  jobs/cardBuilder.ts 跑 agent、校验产物、打包
-  jobs/chat.ts        买家消息回复
-  hosting/loop.ts     托管循环 + 巡检
-  server/http.ts      健康检查 + 画廊
-skills/               两个 skill 原样 vendor
-tools/imgtool.py      Pillow 辅助（inspect / lineart / chroma-key / mock）
-deploy/               Dockerfile、compose、systemd、install.sh
-data/                 运行数据（任务、会话、凭据缓存、Blender）
+  index.ts            CLI: serve / setup / model / doctor / make / deliver / jobs / pi
+  runtimeConfig.ts    runtime model overrides (data/runtime-config.json)
+  termix/client.ts    wrapper over the termix-agent-skills scripts (login / wait / api / tx / upload / reply)
+  agent/session.ts    pi SDK sessions: skill injection, AGENTS.md rules, custom tools, model resolution
+  agent/tools.ts      image generate / edit / lineart / chroma key / inspect tools (defineTool)
+  agent/imagegen.ts   gateway / OpenAI Images / Gemini / mock back ends
+  jobs/orderWorker.ts order lifecycle: accept → build → package → upload → submit → claim
+  jobs/cardBuilder.ts runs the agent, verifies outputs, packages the deliverable
+  jobs/chat.ts        buyer chat replies
+  hosting/loop.ts     hosting loop + sweep
+  server/http.ts      health + gallery + model API
+skills/               both skills, vendored unchanged
+tools/imgtool.py      Pillow helpers (inspect / lineart / chroma-key / mock)
+examples/ai-gateway/  minimal AI SDK + gateway example
+deploy/               Dockerfile, compose, systemd unit, install.sh
+data/                 runtime data (jobs, conversations, credential caches, Blender)
 ```
 
-## 注意事项
+## Notes
 
-- `make` 用 `mock` 图像后端已在本机跑通全链路（LLM 驱动 skill → Blender → 打包）。真实订单请配置 `openai` 或 `gemini`。
-- Termix 交付/接单是链上操作，需要 gas；热钱包只放少量资金。
-- 挑战期没有自动结算，程序会在窗口结束后自动 `claim-after-timeout`。
-- skill 升级：`cd data/termix && node ../../skills/termix-agent-skills/scripts/aacp-update.mjs check`。
+- Verified locally: gateway text and image generation (genuine alpha), the Blender pipeline, and a full `make` run driven by the model. Not yet exercised live: minting, publishing the listing and delivering a funded Termix order.
+- Accepting and delivering are on-chain and cost gas; keep only a small balance in the hot wallet.
+- There is no automatic settlement on Termix; the service claims escrow itself once the challenge window has passed.
+- Skill update check: `cd data/termix && node ../../skills/termix-agent-skills/scripts/aacp-update.mjs check`.

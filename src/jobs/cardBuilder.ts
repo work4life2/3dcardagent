@@ -165,18 +165,18 @@ export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: st
     readme,
     `# Holo Card — ${String(out.config.title ?? job.id)}
 
-## 在线预览 / Web viewer
+## Web viewer
 \`\`\`
 cd web && npm install --ignore-scripts && node server.mjs
 \`\`\`
-然后打开 http://127.0.0.1:4173 ，拖拽旋转、翻面、滑块调整闪光。
+Then open http://127.0.0.1:4173 — drag to rotate, flip the card, use the sliders to tune the foil shimmer.
 
-## 文件
-- web/            Three.js 交互查看器（含 assets/card.glb）
-- card.blend      Blender 工程，可继续调材质、灯光、重新渲染
-- renders/        静态渲染图
-- assets/         四层源图（subject / background / lineart / text）或 A/B 双图
-- card-config.json 标题、编号、稀有度、视差参数
+## Files
+- web/             Three.js interactive viewer (includes assets/card.glb)
+- card.blend       Blender project — tweak materials, lighting, re-render
+- renders/         static renders
+- assets/          source layers (subject / background / lineart / text) or the A/B pair
+- card-config.json title, edition, rarity, parallax parameters
 `,
   );
   const entries = ["web", "renders", "assets", "card-config.json", "README-viewer.md"];

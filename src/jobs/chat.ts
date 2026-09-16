@@ -67,7 +67,7 @@ export async function handleChatMessage(ev: WatchEvent): Promise<void> {
     } finally {
       session.dispose();
     }
-    if (!reply) reply = "收到，我马上处理，请稍等。";
+    if (!reply) reply = "Got it — I am on it, one moment please.";
     await tx.reply(conversationId, reply, ev.messageId ? `auto-${ev.messageId}` : undefined);
     conv.messages.push({ role: "agent", text: reply, at: new Date().toISOString() });
     saveConversation(conv);

@@ -146,6 +146,20 @@ async function deliver(job: Job, pack: { zip: string; blend: string; preview?: s
   saveJob(job);
 }
 
+/** Buyer-facing delivery notice in the language of the brief (English by default). */
+function deliveryNotice(job: Job): string {
+  if (isChinese(job.brief)) {
+    return `✅ 您的闪卡已交付！${job.previewUrl ? `在线预览：${job.previewUrl}\n` : ""}交付包含：可交互网页查看器、Blender 工程 card.blend、渲染图与源图层。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。`;
+  }
+  return `✅ Your holographic card has been delivered!${job.previewUrl ? ` Online preview: ${job.previewUrl}\n` : " "}The delivery includes the interactive web viewer, the Blender project (card.blend), rendered previews and the source layers. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.`;
+}
+
+/** Heuristic: does the buyer write in Chinese? */
+export function isChinese(text: string): boolean {
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  return cjk >= 4 && cjk / Math.max(1, text.replace(/\s/g, "").length) > 0.15;
+}
+
 function previewUrlFor(job: Job): string | undefined {
   const { http } = getConfig();
   return http.publicBaseUrl ? `${http.publicBaseUrl}/cards/${job.id}/` : undefined;
@@ -167,7 +181,7 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
       const buyerLines = log_.messages.filter((m) => m.role === "buyer").map((m) => m.text);
       if (buyerLines.length) brief += `\n\nBuyer messages in the order conversation:\n${buyerLines.join("\n")}`;
     }
-    if (!brief.trim()) brief = "(The order carries no written brief. Design a striking original collectible card: choose an appealing fantasy character, default art direction, Chinese title text, edition 001/001.)";
+    if (!brief.trim()) brief = "(The order carries no written brief. Design a striking original collectible card: choose an appealing fantasy character, default art direction, English title text, edition 001/001.)";
     job = createJob({ id: `order-${orderId}`, orderId, brief, refs, conversationId: conv });
     log.info(`order ${orderId}: job created`, { refs: refs.length });
   }
@@ -175,7 +189,7 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
     if ((opts.redoNote || order.redoUsed) && job.status === "delivered") {
       job.redoRound += 1;
       job.status = "queued";
-      const redoLines = text.split("\n").filter((l) => /redo|note|change|修改/i.test(l)).join("\n");
+      const redoLines = text.split("\n").filter((l) => /redo|note|change|revise|修改/i.test(l)).join("\n");
       job.notes.push(`redo ${job.redoRound}: ${opts.redoNote ?? ""}\n${redoLines}`.trim());
       saveJob(job);
     }
@@ -205,7 +219,7 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
     if (job.status === "delivered") {
       await notify("job.delivered", { orderId, jobId: job.id, previewUrl: job.previewUrl, tx: job.txHashes });
       if (job.conversationId) {
-        const msg = `✅ 您的闪卡已交付！${job.previewUrl ? `在线预览：${job.previewUrl}\n` : ""}交付包含：可交互网页查看器、Blender 工程 card.blend、渲染图与四层源图。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。`;
+        const msg = deliveryNotice(job);
         try {
           await postNotice(job.conversationId, msg);
         } catch (err) {

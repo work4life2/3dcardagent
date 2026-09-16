@@ -48,9 +48,9 @@ function galleryHtml(): string {
       return `<a class="card" href="/cards/${j.id}/"><div class="thumb">${hero ? `<img src="/jobs/${j.id}/renders/hero.png" alt="">` : ""}</div><div class="meta"><b>${j.id}</b><span>${j.status}</span></div></a>`;
     })
     .join("");
-  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Holo Card Gallery</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Holo Card Gallery</title>
 <style>body{margin:0;font-family:system-ui,sans-serif;background:#fff;color:#111}header{padding:24px;border-bottom:1px solid #eee}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:24px}.card{display:block;text-decoration:none;color:inherit;border:1px solid #eee;border-radius:12px;overflow:hidden}.thumb{aspect-ratio:1080/1500;background:#f4f4f4}.thumb img{width:100%;height:100%;object-fit:cover;display:block}.meta{display:flex;justify-content:space-between;padding:10px 12px;font-size:13px}</style></head>
-<body><header><h1>Holo Card Gallery</h1><p>AI 生成的 3D 全息闪卡 · 点击进入可交互查看器</p></header><main>${cards || "<p>还没有交付的卡。</p>"}</main></body></html>`;
+<body><header><h1>Holo Card Gallery</h1><p>AI-generated 3D holographic collectible cards · click a card to open the interactive viewer</p></header><main>${cards || "<p>No delivered cards yet.</p>"}</main></body></html>`;
 }
 
 export function startHttpServer(): http.Server {

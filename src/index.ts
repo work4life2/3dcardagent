@@ -8,19 +8,19 @@ import { initLogFile, logger } from "./log.js";
 const log = logger("main");
 
 function usage(): never {
-  process.stdout.write(`holo-card-agent — 在 Termix 上出售 AI 3D 全息闪卡
+  process.stdout.write(`holo-card-agent — sell AI 3D holographic cards on Termix
 
-用法:
-  holo-card-agent serve                       托管上线：接单 → 生成闪卡 → 交付（常驻）
-  holo-card-agent setup [agents|mint <name> "<显示名>"|listing [cover.png]|deps]
+Usage:
+  holo-card-agent serve                       go online: accept orders → build cards → deliver (long-running)
+  holo-card-agent setup [agents|mint <name> "<display name>"|listing [cover.png] [--update <listingId>]|deps]
   holo-card-agent model [show|build <id>|chat <id>|image <id>|thinking <lvl>|reset]
-                                              运行时切换模型（立即生效，无需重启 serve）
-  holo-card-agent doctor                      环境与配置体检
-  holo-card-agent make "<需求描述>" [--ref <图片路径或URL>] [--name <jobId>]
-                                              本地生成一张卡（不接市场），用于测试
-  holo-card-agent deliver <orderId>           手动处理/重试某个订单
-  holo-card-agent jobs                        列出任务
-  holo-card-agent pi [args...]                打开交互式 pi（已加载两个 skill 与图像工具）
+                                              switch models at runtime (takes effect immediately, no restart)
+  holo-card-agent doctor                      check environment and configuration
+  holo-card-agent make "<brief>" [--ref <image path or URL>] [--name <jobId>]
+                                              build one card locally (no marketplace), for testing
+  holo-card-agent deliver <orderId>           process / retry one order manually
+  holo-card-agent jobs                        list jobs
+  holo-card-agent pi [args...]                interactive pi with both skills and the image tools loaded
 `);
   process.exit(2);
 }
@@ -70,7 +70,9 @@ async function main() {
         await s.mintAgent(rest[1], rest[2] ?? rest[1]);
       } else if (sub === "listing") {
         if (!cfg.termix.agentId) throw new Error("A2A_AGENT_ID is not set");
-        await s.publishListing(cfg.termix.agentId, rest[1]);
+        const upd = rest.indexOf("--update");
+        const cover = rest.slice(1).find((a, i, arr) => !a.startsWith("--") && arr[i - 1] !== "--update");
+        await s.publishListing(cfg.termix.agentId, cover, upd >= 0 ? rest[upd + 1] : undefined);
       } else usage();
       break;
     }
@@ -96,7 +98,7 @@ async function main() {
         job.previewUrl = cfg.http.publicBaseUrl ? `${cfg.http.publicBaseUrl}/cards/${job.id}/` : undefined;
         saveJob(job);
         const pack = await packageJob(job, out);
-        process.stdout.write(`\n✅ 完成: ${job.dir}\n  预览渲染: ${out.hero ?? "-"}\n  交付包:   ${pack.zip}\n  本地查看: cd ${out.webDir} && node server.mjs  → http://127.0.0.1:4173\n  或启动 serve 后访问 /cards/${job.id}/\n`);
+        process.stdout.write(`\n✅ Done: ${job.dir}\n  preview render: ${out.hero ?? "-"}\n  deliverable:    ${pack.zip}\n  view locally:   cd ${out.webDir} && node server.mjs  → http://127.0.0.1:4173\n  or run serve and open /cards/${job.id}/\n`);
       } catch (err) {
         job.status = "failed";
         job.error = String(err instanceof Error ? err.message : err);
@@ -122,14 +124,14 @@ async function main() {
         process.stdout.write(`build    ${m.buildModel}${m.overrides.buildModel ? "" : "  (env default)"}\nchat     ${m.chatModel}${m.overrides.chatModel ? "" : "  (env default)"}\nimage    ${m.imageModel}${m.overrides.imageModel ? "" : "  (env default)"}\nthinking ${m.thinking}${m.overrides.thinking ? "" : "  (env default)"}\n`);
       } else if (sub === "reset") {
         setModels({ buildModel: "", chatModel: "", imageModel: "", thinking: "" });
-        process.stdout.write("已恢复为 .env 默认值\n");
+        process.stdout.write("Reset to the .env defaults\n");
       } else if (map[sub] && rest[1]) {
         if (sub !== "image" && sub !== "thinking") {
           const { resolveModel } = await import("./agent/session.js");
           await resolveModel(rest[1]); // fail fast on unknown model ids
         }
         const m = setModels({ [map[sub]]: rest[1] });
-        process.stdout.write(`✅ ${sub} → ${m[map[sub]]}（新会话立即生效）\n`);
+        process.stdout.write(`✅ ${sub} → ${m[map[sub]]} (applies to new sessions immediately)\n`);
       } else usage();
       break;
     }

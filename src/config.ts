@@ -113,7 +113,7 @@ export function getConfig(): Config {
       notifyWebhook: env("NOTIFY_WEBHOOK_URL"),
     },
     service: {
-      title: env("SERVICE_TITLE", "AI 3D 全息闪卡定制（Holo Card Studio）"),
+      title: env("SERVICE_TITLE", "Custom AI 3D Holographic Collectible Card (Holo Card Studio)"),
       price: env("SERVICE_PRICE", "15"),
       currency: env("SERVICE_CURRENCY", "USDC"),
       deliveryDays: envInt("SERVICE_DELIVERY_DAYS", 2),
