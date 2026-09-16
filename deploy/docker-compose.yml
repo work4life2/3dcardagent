@@ -1,6 +1,5 @@
 # docker compose -f deploy/docker-compose.yml up -d
-# The container uses the host network so that the local proxy on 127.0.0.1:1080 is reachable
-# and the gallery is served on the host's port 8787.
+# The container uses the host network so the gallery is served on the host's port 8787.
 services:
   holo-card-agent:
     build:
@@ -16,7 +15,6 @@ services:
       DATA_DIR: /data
       HTTP_HOST: 0.0.0.0
       HTTP_PORT: "8787"
-      PROXY_URL: http://127.0.0.1:1080
     volumes:
       - holo-data:/data
     # one-off setup inside the container:

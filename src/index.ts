@@ -4,7 +4,6 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { getConfig, ROOT } from "./config.js";
 import { initLogFile, logger } from "./log.js";
-import { initProxy } from "./proxy.js";
 
 const log = logger("main");
 
@@ -30,7 +29,6 @@ async function main() {
   initLogFile(path.join(cfg.dataDir, "logs"));
   const { exposeLocalBin } = await import("./cli/setup.js");
   exposeLocalBin();
-  if (cmd !== "pi") await initProxy();
 
   switch (cmd) {
     case "serve": {
@@ -124,7 +122,6 @@ async function main() {
       const bin = path.join(ROOT, "node_modules", ".bin", "pi");
       if (!fs.existsSync(bin)) throw new Error("pi is not installed; run npm install");
       const { ensureModelsJson } = await import("./agent/session.js");
-      await initProxy();
       ensureModelsJson();
       const env = { ...process.env, PI_CODING_AGENT_DIR: cfg.agentDir };
       // This is our own project: trust .pi/ (settings, skills, extension) so the tools load.

@@ -4,7 +4,6 @@ import { getConfig } from "../config.js";
 import { run } from "../util/exec.js";
 import { imageProviderReady } from "../agent/imagegen.js";
 import { modelRuntime, resolveModel } from "../agent/session.js";
-import { proxyState } from "../proxy.js";
 import { termix } from "../termix/client.js";
 
 export interface Check {
@@ -37,7 +36,6 @@ export async function runDoctor(opts: { network?: boolean } = { network: true })
   add("skill: termix-agent-skills", fs.existsSync(path.join(cfg.termixSkillDir, "SKILL.md")), cfg.termixSkillDir);
   const three = ["web-holographic", "web-lenticular"].every((d) => fs.existsSync(path.join(cfg.holoSkillDir, "assets", d, "node_modules", "three", "package.json")));
   add("web viewer deps (three.js)", three, three ? "pre-installed" : "run `npm run setup` to pre-install", false);
-  add("proxy", true, proxyState() ? `${proxyState()!.enabled ? "ON " + proxyState()!.url : "off"} — ${proxyState()!.reason}` : "not initialised", false);
 
   const img = imageProviderReady();
   add("image provider", img.ok, img.reason);

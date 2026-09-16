@@ -5,7 +5,7 @@
 - 底层 agent 框架：[pi](https://pi.dev)（`@earendil-works/pi-coding-agent` SDK）
 - 能力 1：[holo-card-studio](https://github.com/EverettFish/holo-card-studio) —— 四层图 → Blender 全息卡 → Three.js 交互查看器
 - 能力 2：[termix-agent-skills](https://termix.ai/skills?v=1.8.0) v1.8.0 —— 账号连接、托管上线、接单、交付、领款
-- 部署形态：一个常驻进程（systemd / Docker），内置健康检查与在线预览画廊；网络受限时自动走本地代理（默认 `127.0.0.1:1080`）
+- 部署形态：一个常驻进程（systemd / Docker），内置健康检查与在线预览画廊
 
 两个 skill 都原样 vendor 在 `skills/` 下，pi 直接加载它们；pi 缺的"图像生成工具"由本项目补上（`generate_image` / `edit_image` / `derive_lineart` / `chroma_key` / `inspect_image` …）。
 
@@ -31,7 +31,7 @@ aacp-watch.mjs wait  ──(轮询即在线心跳)──▶  事件
 
 ## 环境要求
 
-- Node.js ≥ 22（内置 fetch 会读 `HTTP(S)_PROXY`）
+- Node.js ≥ 22
 - Python 3 + Pillow；`fontconfig` + 中文字体（`fonts-noto-cjk`）；`zip`
 - Blender：不必手装，`npm run setup` 会下载官方便携版 4.5（SHA-256 校验）到 `data/blender/`；已装则直接复用
 - 一个 LLM（pi 支持的任意 provider，或 Anthropic 兼容中转）+ 一个图像生成 API（OpenAI `gpt-image-1` 推荐，支持透明背景；或 Gemini）
@@ -42,7 +42,7 @@ aacp-watch.mjs wait  ──(轮询即在线心跳)──▶  事件
 git clone <this repo> && cd 3dcardagent
 npm install --ignore-scripts
 npm run build
-cp .env.example .env         # 填 LLM / 图像 API / 链 / 代理
+cp .env.example .env         # 填 LLM / 图像 API / 链
 npm run setup                # 预装 three.js、下载 Blender、体检
 npm run setup -- link        # 连接 Termix 网页账号（手机浏览器扫码授权）
 npm run setup -- agents      # 列出账号下的 agent → 把 id 写进 .env 的 A2A_AGENT_ID
@@ -65,10 +65,6 @@ Termix 有三种身份，优先级 **linked › agentic › key**：
 
 每条链（`AACP_CHAIN=bsc|base|rh`）是独立市场，agent、订单、余额互不相通。
 
-### 代理
-
-`PROXY_MODE=auto`（默认）：启动时探测 `PROXY_PROBE_URL` 直连，失败则检查 `PROXY_URL` 端口是否在监听，是就把 `HTTP(S)_PROXY` + `NODE_USE_ENV_PROXY=1` 导出给自己和所有子进程（pi 的模型请求、Termix 脚本的 fetch、Python 下载 Blender、npm）。运行中若直连请求失败还会再自动切一次。`always` / `off` 强制开关。`NO_PROXY` 默认排除 localhost。
-
 ## 部署
 
 ### systemd（裸机）
@@ -89,13 +85,13 @@ docker compose -f deploy/docker-compose.yml run --rm holo-card-agent setup listi
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-容器用 host 网络，这样能直接用宿主机的 `127.0.0.1:1080` 代理，画廊在 `:8787`。
+容器用 host 网络，画廊在 `:8787`。
 
 ### HTTP 端点
 
 | 路径 | 说明 |
 |---|---|
-| `/health` | 健康检查（含代理状态、链、agent） |
+| `/health` | 健康检查（含链、agent） |
 | `/cards/` | 已交付卡片画廊；`/cards/<jobId>/` 是可交互的 Three.js 查看器 |
 | `/api/jobs`、`/api/jobs/<id>` | 任务状态 |
 | `/jobs/<id>/renders/hero.png` | 渲染图 |
@@ -117,7 +113,6 @@ docker compose -f deploy/docker-compose.yml up -d
 ```
 src/
   index.ts            CLI：serve / setup / doctor / make / deliver / jobs / pi
-  proxy.ts            代理探测与注入
   termix/client.ts    封装 termix-agent-skills 的脚本（wait / api / tx / upload / reply）
   agent/session.ts    用 pi SDK 创建会话：注入 skill、AGENTS.md、自定义工具、模型
   agent/tools.ts      图像生成 / 编辑 / 线稿 / 抠图 / 检查工具（defineTool）

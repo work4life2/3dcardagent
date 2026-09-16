@@ -4,7 +4,6 @@ import { chatSystemPrompt } from "../agent/prompts.js";
 import { createChatSession, promptForText } from "../agent/session.js";
 import { termix, type WatchEvent } from "../termix/client.js";
 import { findJobByOrder, loadConversation, saveConversation } from "./store.js";
-import { fetchWithFallback } from "../proxy.js";
 
 const log = logger("chat");
 
@@ -54,7 +53,7 @@ export async function handleChatMessage(ev: WatchEvent): Promise<void> {
     const images: Array<{ mediaType: string; data: string }> = [];
     for (const url of extractImageUrls(text).slice(0, 2)) {
       try {
-        const res = await fetchWithFallback(url, { signal: AbortSignal.timeout(30_000) });
+        const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
         if (res.ok) images.push({ mediaType: res.headers.get("content-type") ?? "image/png", data: Buffer.from(await res.arrayBuffer()).toString("base64") });
       } catch {
         /* ignore */

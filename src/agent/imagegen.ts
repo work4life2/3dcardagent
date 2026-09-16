@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { getConfig } from "../config.js";
 import { logger } from "../log.js";
-import { fetchWithFallback } from "../proxy.js";
 import { run } from "../util/exec.js";
 
 const log = logger("imagegen");
@@ -53,7 +52,7 @@ async function openaiGenerate(o: GenerateOptions): Promise<GenerateResult> {
     if (o.maskPath) {
       form.set("mask", new Blob([fs.readFileSync(o.maskPath)], { type: "image/png" }), "mask.png");
     }
-    res = await fetchWithFallback(`${image.openaiBaseUrl}/images/edits`, {
+    res = await fetch(`${image.openaiBaseUrl}/images/edits`, {
       method: "POST",
       headers,
       body: form,
@@ -63,7 +62,7 @@ async function openaiGenerate(o: GenerateOptions): Promise<GenerateResult> {
     const body: Record<string, unknown> = { model: image.openaiModel, prompt: o.prompt, size, n: 1 };
     if (o.transparent) body.background = "transparent";
     if (/gpt-image/i.test(image.openaiModel)) body.output_format = "png";
-    res = await fetchWithFallback(`${image.openaiBaseUrl}/images/generations`, {
+    res = await fetch(`${image.openaiBaseUrl}/images/generations`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -77,7 +76,7 @@ async function openaiGenerate(o: GenerateOptions): Promise<GenerateResult> {
   if (!item) throw new Error(`OpenAI images API returned no image: ${text.slice(0, 300)}`);
   let buf: Buffer;
   if (item.b64_json) buf = Buffer.from(item.b64_json, "base64");
-  else if (item.url) buf = Buffer.from(await (await fetchWithFallback(item.url)).arrayBuffer());
+  else if (item.url) buf = Buffer.from(await (await fetch(item.url)).arrayBuffer());
   else throw new Error("OpenAI images API returned neither b64_json nor url");
   fs.mkdirSync(path.dirname(o.outPath), { recursive: true });
   fs.writeFileSync(o.outPath, buf);
@@ -103,7 +102,7 @@ async function geminiGenerate(o: GenerateOptions): Promise<GenerateResult> {
   const ratio = w === h ? "1:1" : w > h ? "3:2" : "2:3";
   parts.push({ text: `${o.prompt}\n\nOutput a single image with aspect ratio ${ratio}.` });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${image.geminiModel}:generateContent?key=${encodeURIComponent(image.geminiKey)}`;
-  const res = await fetchWithFallback(url, {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { responseModalities: ["IMAGE"] } }),

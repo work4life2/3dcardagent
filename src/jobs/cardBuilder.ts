@@ -6,7 +6,6 @@ import { run } from "../util/exec.js";
 import { cardBuildGuidelines, cardBuildPrompt } from "../agent/prompts.js";
 import { createCardSession } from "../agent/session.js";
 import { pickDefaultFont } from "../agent/fonts.js";
-import { fetchWithFallback } from "../proxy.js";
 import type { Job } from "./store.js";
 import { saveJob } from "./store.js";
 
@@ -78,7 +77,7 @@ async function downloadRefs(job: Job): Promise<string[]> {
   for (const [i, ref] of job.refs.entries()) {
     try {
       if (/^https?:\/\//.test(ref)) {
-        const res = await fetchWithFallback(ref, { signal: AbortSignal.timeout(60_000) });
+        const res = await fetch(ref, { signal: AbortSignal.timeout(60_000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const ct = res.headers.get("content-type") ?? "";
         const ext = ct.includes("jpeg") || ct.includes("jpg") ? ".jpg" : ct.includes("webp") ? ".webp" : ".png";

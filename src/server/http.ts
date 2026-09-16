@@ -4,7 +4,6 @@ import path from "node:path";
 import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { listJobs, loadJob } from "../jobs/store.js";
-import { proxyState } from "../proxy.js";
 
 const log = logger("http");
 
@@ -60,7 +59,7 @@ export function startHttpServer(): http.Server {
     const url = new URL(req.url ?? "/", "http://localhost");
     const p = decodeURIComponent(url.pathname);
     if (p === "/health" || p === "/healthz") {
-      return send(res, 200, JSON.stringify({ ok: true, proxy: proxyState(), chain: cfg.termix.chain, agentId: cfg.termix.agentId || null, at: new Date().toISOString() }));
+      return send(res, 200, JSON.stringify({ ok: true, chain: cfg.termix.chain, agentId: cfg.termix.agentId || null, at: new Date().toISOString() }));
     }
     if (p === "/api/jobs") {
       return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, previewUrl, error }) => ({ id, orderId, status, createdAt, updatedAt, previewUrl, error }))));

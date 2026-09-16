@@ -39,7 +39,6 @@ export interface Config {
   termixSkillDir: string;
   toolsDir: string;
   agentDir: string;
-  proxy: { mode: "auto" | "always" | "off"; url: string; probeUrl: string; noProxy: string };
   llm: { model: string; chatModel: string; thinking: string };
   image: {
     provider: "openai" | "gemini" | "mock";
@@ -71,7 +70,6 @@ export function getConfig(): Config {
   const skillsDir = path.join(ROOT, "skills");
   const providerRaw = env("IMAGE_PROVIDER", "openai").toLowerCase();
   const provider = providerRaw === "gemini" ? "gemini" : providerRaw === "mock" ? "mock" : "openai";
-  const mode = env("PROXY_MODE", "auto").toLowerCase();
   cached = {
     root: ROOT,
     dataDir,
@@ -80,12 +78,6 @@ export function getConfig(): Config {
     termixSkillDir: path.join(skillsDir, "termix-agent-skills"),
     toolsDir: path.join(ROOT, "tools"),
     agentDir: path.resolve(ROOT, env("PI_CODING_AGENT_DIR", path.join(dataDir, "pi-agent"))),
-    proxy: {
-      mode: mode === "always" ? "always" : mode === "off" ? "off" : "auto",
-      url: env("PROXY_URL", "http://127.0.0.1:1080"),
-      probeUrl: env("PROXY_PROBE_URL", "https://api.openai.com/v1/models"),
-      noProxy: env("NO_PROXY", "localhost,127.0.0.1,::1"),
-    },
     llm: {
       model: env("PI_MODEL", "anthropic/claude-sonnet-4-5"),
       chatModel: env("PI_CHAT_MODEL", env("PI_MODEL", "anthropic/claude-sonnet-4-5")),
