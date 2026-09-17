@@ -50,7 +50,7 @@ export interface Config {
     geminiKey: string;
     geminiModel: string;
   };
-  termix: { chain: string; agentId: string; hasWalletKey: boolean };
+  termix: { chain: string; agentId: string; hasWalletKey: boolean; rpcUrl: string };
   http: { port: number; host: string; publicBaseUrl: string };
   jobs: { timeoutMinutes: number; concurrency: number; sweepIntervalSeconds: number; notifyWebhook: string };
   service: {
@@ -100,6 +100,7 @@ export function getConfig(): Config {
       chain: env("AACP_CHAIN", "bsc"),
       agentId: env("A2A_AGENT_ID"),
       hasWalletKey: Boolean(env("WALLET_KEY")),
+      rpcUrl: env("A2A_RPC_URL"),
     },
     http: {
       port: envInt("HTTP_PORT", 8787),

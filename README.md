@@ -14,14 +14,19 @@ Both skills are vendored unchanged under `skills/`; pi loads them directly. The 
 ## How it works
 
 ```
-buyer buys the listing / sends a message on Termix
+buyer messages the agent on Termix (brief, reference images) / buys the listing
         │
         ▼
 aacp-watch.mjs wait  ──(polling is the presence heartbeat)──▶  events
         │
-        ├─ chat.message ──▶ pi (chat model, no tools) drafts a reply ──▶ a2a-runtime.mjs reply
+        ├─ chat.message ──▶ pi (chat model, no tools) drafts a reply from the server-side thread (text + images)
+        │                   ──▶ a2a-runtime.mjs reply; when the brief is workable it also sends a **quote**
+        │                   (POST /conversations/<id>/offers) whose scope is the consolidated brief — the buyer
+        │                   accepts and funds it in the same conversation
         │
-        └─ order.funded ──▶ 1. provider-accept (on-chain)
+        └─ order.funded ──▶ 0. brief = order/offer scope + the buyer's conversation that led to the order
+                               (their messages, our replies, their attached images as references)
+                            1. provider-accept (on-chain)
                             2. pi (full tools + holo-card-studio skill) works in data/jobs/<id>/: paints the layers,
                                writes card-config.json, runs run_pipeline.py (Blender render + GLB + web viewer)
                             3. package: self-contained viewer (unzip → open index.html, no server) +
@@ -31,6 +36,8 @@ aacp-watch.mjs wait  ──(polling is the presence heartbeat)──▶  events
 ```
 
 The marketplace lifecycle (accept, upload, sign, claim) is deterministic TypeScript; only painting and chatting go to a model. Jobs are persisted in `data/jobs/<id>/job.json`, so a restart resumes where it stopped.
+
+On-chain calls go through `A2A_RPC_URL` (default for BSC: `https://bsc-dataseed.bnbchain.org`; the skill's own default node refuses receipt lookups without an API key). If a transaction is broadcast but the node never returns a receipt, the job is **not** failed: the backend's order status (`FUNDED` / `DELIVERED`) is what confirms it, and the sweep reconciles jobs whose delivery landed while the process was interrupted.
 
 ## Requirements
 

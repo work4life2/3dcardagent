@@ -4,7 +4,9 @@ import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { notify } from "../notify.js";
 import { sleep } from "../util/exec.js";
-import { termix, type TxIntent } from "../termix/client.js";
+import { termix, type RemoteConversation, type TxIntent } from "../termix/client.js";
+import { briefFromMessages, buyerIdentity, messagesForOrder } from "../termix/brief.js";
+import { isChinese } from "../util/lang.js";
 import { buildCard, packageJob } from "./cardBuilder.js";
 import { createJob, findJobByOrder, loadConversation, saveJob, type Job } from "./store.js";
 import { postNotice } from "./chat.js";
@@ -27,6 +29,13 @@ const BRIEF_KEYS = new Set([
   "redoNote", "redoReason", "instructions", "details", "spec", "summary", "clientNote", "buyerNote",
 ]);
 
+/**
+ * Sub-objects of the order payload that describe *us* or the platform, not the buyer's wishes.
+ * Their texts and images (listing cover, agent avatar, sample renders) must never leak into the brief.
+ */
+const NOT_BRIEF_KEYS = /^(buyer|client|provider|seller|wallet|tx|signature|callData|listing|partyCards|providerAgent|clientAgent|checkout|timeline|txIntents|artifacts|review|dispute|deadlines|nextAction|availableActions)$/i;
+const NOT_REF_KEYS = /^(avatarUrl|coverImageUrl|imageUrl|logo|icon|previewUrl|thumbnail)$/i;
+
 /** Collect every plausible brief field from the order payload (shape is backend-defined). */
 export function extractBrief(order: Record<string, unknown>): { text: string; refs: string[] } {
   const lines: string[] = [];
@@ -35,8 +44,8 @@ export function extractBrief(order: Record<string, unknown>): { text: string; re
   const walk = (v: unknown, keyPath: string, depth: number) => {
     if (depth > 6 || v === null || v === undefined) return;
     if (typeof v === "string") {
-      if (/^https?:\/\/\S+\.(png|jpe?g|webp)(\?\S*)?$/i.test(v.trim())) refs.add(v.trim());
       const last = keyPath.split(".").pop() ?? "";
+      if (/^https?:\/\/\S+\.(png|jpe?g|webp)(\?\S*)?$/i.test(v.trim()) && !NOT_REF_KEYS.test(last)) refs.add(v.trim());
       if (BRIEF_KEYS.has(last) && v.trim() && !/^(0x[0-9a-f]{40}|c[a-z0-9]{20,})$/i.test(v)) lines.push(`${keyPath}: ${v.trim()}`);
       return;
     }
@@ -48,7 +57,7 @@ export function extractBrief(order: Record<string, unknown>): { text: string; re
       return;
     }
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (/^(buyer|client|provider|seller|wallet|tx|signature|callData)$/i.test(k)) continue;
+      if (NOT_BRIEF_KEYS.test(k)) continue;
       walk(x, keyPath ? `${keyPath}.${k}` : k, depth + 1);
     }
   };
@@ -72,6 +81,72 @@ export function ownsOrder(order: Order): boolean {
 function orderConversationId(order: Order): string | undefined {
   const c = order.conversationId ?? (order.conversation as { id?: string } | undefined)?.id;
   return typeof c === "string" ? c : undefined;
+}
+
+function buyerIds(order: Order): string[] {
+  const b = (order.buyer ?? {}) as { id?: string; walletAddress?: string; handle?: string; displayName?: string; clientAgentId?: string };
+  return [b.id, b.walletAddress, b.handle, b.displayName, b.clientAgentId].filter((x): x is string => typeof x === "string" && x.length > 0);
+}
+
+/**
+ * The conversation an order was negotiated in. A listing purchase creates an offer whose
+ * `conversationId` is the buyer's direct-message thread with our agent — the same thread where
+ * they sent their reference images and wishes. Fallbacks: the order's own conversation, then the
+ * most recent direct thread with this buyer.
+ */
+async function resolveOrderConversation(order: Order): Promise<{ id?: string; conv?: RemoteConversation }> {
+  const tx = termix();
+  const own = orderConversationId(order);
+  const fromOffer = (order.offer as { conversationId?: string } | undefined)?.conversationId;
+  const candidates = [fromOffer, own].filter((x): x is string => typeof x === "string" && x.length > 0);
+  if (!candidates.length && typeof order.offerId === "string") {
+    const offer = await tx.offer(order.offerId);
+    if (offer?.conversationId) candidates.push(offer.conversationId);
+  }
+  if (!candidates.length) {
+    const ids = new Set(buyerIds(order));
+    if (ids.size) {
+      try {
+        const all = (await tx.conversations())
+          .filter((c) => (c.kind ?? "DIRECT_MESSAGE") !== "SYSTEM_READONLY" && buyerIdentity(c).some((x) => ids.has(x)))
+          .sort((a, b) => String(b.updatedAt ?? b.lastMessage?.createdAt ?? "").localeCompare(String(a.updatedAt ?? a.lastMessage?.createdAt ?? "")));
+        if (all[0]) candidates.push(all[0].id);
+      } catch (err) {
+        log.warn(`order ${order.id}: could not list conversations — ${String(err)}`);
+      }
+    }
+  }
+  for (const id of candidates) {
+    const conv = await tx.conversation(id);
+    if (conv) return { id, conv };
+  }
+  return { id: candidates[0] ?? own };
+}
+
+/**
+ * Everything the buyer told us, in one brief: the order/offer scope plus the conversation that led
+ * to the order (their messages, our replies with the agreed details, and their reference images).
+ */
+async function composeBrief(order: Order): Promise<{ brief: string; refs: string[]; conversationId?: string }> {
+  const { text, refs } = extractBrief(order as Record<string, unknown>);
+  const { id: conversationId, conv } = await resolveOrderConversation(order);
+  let brief = text;
+  const allRefs = new Set<string>();
+  const offerId = typeof order.offerId === "string" ? order.offerId : undefined;
+  if (conv?.messages?.length) {
+    const window = messagesForOrder(conv.messages, order.id, offerId ? [offerId] : []);
+    const { transcript, refs: convRefs } = briefFromMessages(window);
+    if (transcript.trim()) brief += `\n\nConversation with the buyer that led to this order (chronological; "You" is us — everything agreed here is part of the brief):\n${transcript}`;
+    for (const r of convRefs) allRefs.add(r);
+  } else if (conversationId) {
+    const local = loadConversation(conversationId);
+    const buyerLines = local.messages.filter((m) => m.role === "buyer").map((m) => m.text);
+    if (buyerLines.length) brief += `\n\nBuyer messages in the order conversation:\n${buyerLines.join("\n")}`;
+    for (const m of local.messages) for (const r of m.refs ?? []) allRefs.add(r);
+  }
+  // Order-payload images only count when the buyer gave none in chat (they are rarely theirs).
+  if (!allRefs.size) for (const r of refs) allRefs.add(r);
+  return { brief, refs: [...allRefs], conversationId };
 }
 
 async function getOrder(orderId: string): Promise<Order> {
@@ -180,11 +255,7 @@ function deliveryNotice(job: Job): string {
   return `✅ Your holographic card has been delivered!${job.previewUrl ? ` Online preview: ${job.previewUrl}\n` : " "}Two files: a zip (unzip, double-click index.html for the interactive viewer; renders and source layers included) and a preview render. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.`;
 }
 
-/** Heuristic: does the buyer write in Chinese? */
-export function isChinese(text: string): boolean {
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
-  return cjk >= 4 && cjk / Math.max(1, text.replace(/\s/g, "").length) > 0.15;
-}
+export { isChinese };
 
 function previewUrlFor(job: Job): string | undefined {
   const { http } = getConfig();
@@ -204,18 +275,19 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
     if (job) throw new Error(`order ${orderId} does not belong to the hosted agent`);
     return { id: `skipped-${orderId}`, orderId, status: "failed", brief: "", refs: [], createdAt: "", updatedAt: "", attempts: 0, redoRound: 0, dir: "", artifacts: [], txHashes: {}, notes: ["not our order"] } as Job;
   }
-  const { text, refs } = extractBrief(order as Record<string, unknown>);
+  const { text } = extractBrief(order as Record<string, unknown>);
   if (!job) {
-    const conv = orderConversationId(order);
-    let brief = text;
-    if (conv) {
-      const log_ = loadConversation(conv);
-      const buyerLines = log_.messages.filter((m) => m.role === "buyer").map((m) => m.text);
-      if (buyerLines.length) brief += `\n\nBuyer messages in the order conversation:\n${buyerLines.join("\n")}`;
-    }
+    const composed = await composeBrief(order);
+    let { brief } = composed;
     if (!brief.trim()) brief = "(The order carries no written brief. Design a striking original collectible card: choose an appealing fantasy character, default art direction, English title text, edition 001/001.)";
-    job = createJob({ id: `order-${orderId}`, orderId, brief, refs, conversationId: conv });
-    log.info(`order ${orderId}: job created`, { refs: refs.length });
+    job = createJob({ id: `order-${orderId}`, orderId, brief, refs: composed.refs, conversationId: composed.conversationId });
+    log.info(`order ${orderId}: job created`, { refs: composed.refs.length, conversation: composed.conversationId ?? null, briefChars: brief.length });
+  } else if (!job.conversationId) {
+    const { id } = await resolveOrderConversation(order);
+    if (id) {
+      job.conversationId = id;
+      saveJob(job);
+    }
   }
   try {
     if ((opts.redoNote || order.redoUsed) && job.status === "delivered") {
@@ -223,6 +295,13 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
       job.status = "queued";
       const redoLines = text.split("\n").filter((l) => /redo|note|change|revise|修改/i.test(l)).join("\n");
       job.notes.push(`redo ${job.redoRound}: ${opts.redoNote ?? ""}\n${redoLines}`.trim());
+      // The buyer usually explains the change in the conversation: rebuild the brief from it.
+      const composed = await composeBrief(order);
+      if (composed.brief.trim()) {
+        job.brief = composed.brief;
+        if (composed.refs.length) job.refs = composed.refs;
+        job.conversationId ??= composed.conversationId;
+      }
       saveJob(job);
     }
     if (order.status === "PENDING_ACCEPT") order = await acceptOrder(job, order);
@@ -311,7 +390,17 @@ export async function sweepOrders(): Promise<string[]> {
     if (o.status === "PENDING_ACCEPT") actionable.push(o.id);
     else if ((o.status === "FUNDED" || o.status === "IN_PROGRESS") && (!job || ["queued", "failed", "built", "accepting"].includes(job.status))) actionable.push(o.id);
     else if (o.status === "IN_PROGRESS" && o.redoUsed && job?.status === "delivered") actionable.push(o.id);
-    else if (o.status === "SETTLED" && job && job.status !== "settled") {
+    else if (o.status === "DELIVERED" && job && !["delivered", "settled"].includes(job.status)) {
+      // The delivery landed on-chain even though our tx call reported a failure (e.g. no receipt
+      // from the RPC, or the process was stopped while waiting). Reconcile with the backend.
+      log.info(`order ${o.id}: DELIVERED on the platform, marking job ${job.id} delivered (was ${job.status})`);
+      job.status = "delivered";
+      job.error = undefined;
+      if (typeof o.latestTxHash === "string" && !Object.values(job.txHashes).includes(o.latestTxHash)) job.txHashes[job.redoRound ? `submitDelivery-redo${job.redoRound}` : "submitDelivery"] = o.latestTxHash;
+      saveJob(job);
+      await notify("job.delivered", { orderId: o.id, jobId: job.id, previewUrl: job.previewUrl, tx: job.txHashes, reconciled: true });
+      if (job.conversationId) await postNotice(job.conversationId, deliveryNotice(job)).catch((err) => log.warn(`could not post delivery notice: ${String(err)}`));
+    } else if (o.status === "SETTLED" && job && job.status !== "settled") {
       job.status = "settled";
       saveJob(job);
     }

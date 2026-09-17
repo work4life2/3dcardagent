@@ -42,11 +42,27 @@ export interface Job {
   notes: string[];
 }
 
+export interface OfferRecord {
+  offerId: string;
+  revisionId?: string;
+  version?: number;
+  price: string;
+  currency: string;
+  deliveryDays: number;
+  scope: string;
+  at: string;
+  status: "active" | "accepted" | "withdrawn" | "superseded";
+}
+
 export interface ConversationLog {
   id: string;
   orderId?: string;
   kind?: string;
-  messages: Array<{ role: "buyer" | "agent"; text: string; at: string; messageId?: string }>;
+  /** Buyer identity as seen in the watch events (handle / display name / wallet). */
+  buyer?: string;
+  messages: Array<{ role: "buyer" | "agent"; text: string; at: string; messageId?: string; from?: string; refs?: string[] }>;
+  /** Quotes we sent in this conversation (latest last). */
+  offers?: OfferRecord[];
 }
 
 function jobsDir() {

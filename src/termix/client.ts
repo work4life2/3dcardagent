@@ -47,7 +47,26 @@ export interface TxResult {
   chainId?: number;
   signRequestId?: string;
   url?: string;
+  /** True when the tx was broadcast but the RPC never returned a receipt; the backend's order status decides. */
+  pending?: boolean;
   results?: Array<{ action: string; txHash: string; status: string; blockNumber?: number }>;
+}
+
+/**
+ * Public RPC used to broadcast and confirm transactions. The skill's default for BSC
+ * (bsc-rpc.publicnode.com) now answers `eth_getTransactionReceipt` with "Archive requests
+ * require a personal token", so every tx looked like a receipt timeout even though it was
+ * mined. BNB Chain's own dataseed serves receipts; the operator can still override with A2A_RPC_URL.
+ */
+export const DEFAULT_RPC_URL: Record<string, string> = {
+  bsc: "https://bsc-dataseed.bnbchain.org",
+};
+
+/** `[aacp-tx] sent <action> nonce=<n> tx=<hash>` — printed once the raw tx is accepted by the node. */
+const SENT_LINE = /\[aacp-tx\] sent (\S+) (?:nonce=\d+ )?tx=(0x[0-9a-fA-F]{64})/g;
+
+export function broadcastHashes(stderr: string): Array<{ action: string; txHash: string }> {
+  return [...stderr.matchAll(SENT_LINE)].map((m) => ({ action: m[1], txHash: m[2] }));
 }
 
 export class TermixError extends Error {
@@ -84,6 +103,8 @@ export class TermixClient {
     // Key mode only: the service signs locally with the provider hot wallet (WALLET_KEY).
     const e: NodeJS.ProcessEnv = { AACP_CHAIN: cfg.termix.chain, TERMIX_WALLET_MODE: "key" };
     if (cfg.termix.agentId) e.A2A_AGENT_ID = cfg.termix.agentId;
+    const rpc = cfg.termix.rpcUrl || DEFAULT_RPC_URL[cfg.termix.chain];
+    if (rpc) e.A2A_RPC_URL = rpc;
     return e;
   }
 
@@ -255,8 +276,77 @@ export class TermixClient {
     const onStderr = (s: string) => {
       for (const line of s.split("\n")) if (line.trim()) log.debug(line.trim());
     };
-    const result = await this.json<TxResult>("aacp-tx.mjs", args, { timeoutMs: 20 * 60 * 1000, onStderr });
-    return result;
+    const res = await this.node("aacp-tx.mjs", args, { timeoutMs: 20 * 60 * 1000, onStderr });
+    const parsed = lastJson<TxResult>(res.stdout);
+    if (res.code === 0 && parsed) return parsed;
+    const tail = (res.stderr || res.stdout).trim().split("\n").slice(-6).join("\n");
+    // The script exits non-zero when the RPC never returns a receipt (or when we are killed while
+    // waiting for one). If the raw tx was accepted by the node, it is on its way: report it as
+    // pending and let the caller confirm through the backend's order status instead of failing.
+    const sent = broadcastHashes(res.stderr);
+    if (sent.length && !/reverted on-chain/i.test(res.stderr)) {
+      log.warn(`tx broadcast but unconfirmed by the RPC (${res.timedOut ? "killed" : `exit ${res.code}`}): ${sent.map((s) => `${s.action}=${s.txHash}`).join(", ")}`);
+      return { mode: "key", pending: true, results: sent.map((s) => ({ action: s.action, txHash: s.txHash, status: "submitted" })) };
+    }
+    throw new TermixError(`aacp-tx.mjs ${args[0]} failed (exit ${res.code}): ${tail}`, res);
+  }
+
+  // ─── conversations / offers ────────────────────────────────────────
+
+  /** One conversation with its full message list (server is the source of truth, not our local log). */
+  async conversation(id: string): Promise<RemoteConversation | undefined> {
+    try {
+      const res = await this.get<RemoteConversation | { item?: RemoteConversation; conversation?: RemoteConversation }>(`/api/v1/conversations/${id}`);
+      const c = ((res as { item?: RemoteConversation }).item ?? (res as { conversation?: RemoteConversation }).conversation ?? res) as RemoteConversation;
+      return c && Array.isArray(c.messages) ? c : undefined;
+    } catch (err) {
+      log.warn(`could not fetch conversation ${id}: ${String(err)}`);
+      return undefined;
+    }
+  }
+
+  /** All conversations this wallet takes part in (no messages, just participants + last message). */
+  async conversations(): Promise<RemoteConversation[]> {
+    const res = await this.get<{ items?: RemoteConversation[] } | RemoteConversation[]>("/api/v1/conversations");
+    return Array.isArray(res) ? res : (res.items ?? []);
+  }
+
+  /** Send a priced quote into a conversation (off-chain; the buyer accepts and funds it at checkout). */
+  async sendOffer(conversationId: string, offer: OfferInput): Promise<RemoteOffer> {
+    const { termix: t } = getConfig();
+    const res = await this.api<RemoteOffer | { item?: RemoteOffer; offer?: RemoteOffer }>("POST", `/api/v1/conversations/${conversationId}/offers`, {
+      providerAgentId: t.agentId,
+      price: offer.price,
+      currency: offer.currency,
+      deliveryDays: offer.deliveryDays,
+      scope: offer.scope,
+      proofMethod: "optimistic",
+      settlementType: "escrow",
+      message: offer.message ?? "",
+      validUntilHours: offer.validUntilHours ?? 168,
+    });
+    return unwrapOffer(res);
+  }
+
+  /** Replace the terms of an existing quote (new revision; the buyer accepts the latest one). */
+  async reviseOffer(offerId: string, offer: Omit<OfferInput, "currency">): Promise<RemoteOffer> {
+    const res = await this.api<RemoteOffer | { item?: RemoteOffer; offer?: RemoteOffer }>("POST", `/api/v1/offers/${offerId}/revisions`, {
+      price: offer.price,
+      deliveryDays: offer.deliveryDays,
+      scope: offer.scope,
+      message: offer.message ?? "",
+      validUntilHours: offer.validUntilHours ?? 168,
+    });
+    return unwrapOffer(res);
+  }
+
+  async offer(offerId: string): Promise<RemoteOffer | undefined> {
+    try {
+      return unwrapOffer(await this.get<RemoteOffer>(`/api/v1/offers/${offerId}`));
+    } catch (err) {
+      log.warn(`could not fetch offer ${offerId}: ${String(err)}`);
+      return undefined;
+    }
   }
 
   // ─── uploads ───────────────────────────────────────────────────────
@@ -273,6 +363,59 @@ export class TermixClient {
     if (!res.ok) throw new TermixError(`upload failed: ${JSON.stringify(res)}`);
     return { ok: true, sha256: res.sha256, sizeBytes: res.sizeBytes ?? res.size };
   }
+}
+
+export interface RemoteMessage {
+  id?: string;
+  seq?: number;
+  direction?: "in" | "out" | "event" | string;
+  kind?: "TEXT" | "ATTACHMENT" | "OFFER_EVENT" | "ORDER_EVENT" | "FUNDS_EVENT" | string;
+  text?: string | null;
+  fromAccountId?: string | null;
+  fromAgentId?: string | null;
+  fromAccount?: { handle?: string; displayName?: string; walletAddress?: string } | null;
+  fromAgent?: { id?: string; name?: string } | null;
+  businessType?: string | null;
+  businessId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  attachments?: Array<{ url?: string; s3Key?: string; contentType?: string }>;
+  createdAt?: string;
+}
+
+export interface RemoteConversation {
+  id: string;
+  kind?: string;
+  orderId?: string | null;
+  participants?: Array<{ accountId?: string; agentId?: string | null; role?: string; account?: { handle?: string; displayName?: string; walletAddress?: string } }>;
+  messages?: RemoteMessage[];
+  lastMessage?: RemoteMessage | null;
+  updatedAt?: string;
+}
+
+export interface OfferInput {
+  price: string;
+  currency: string;
+  deliveryDays: number;
+  scope: string;
+  message?: string;
+  validUntilHours?: number;
+}
+
+export interface RemoteOffer {
+  id: string;
+  conversationId?: string;
+  status?: string;
+  orderId?: string | null;
+  currentRevisionId?: string;
+  current?: { id: string; version?: number; price?: string; currency?: string; scope?: string; deliveryDays?: number; status?: string };
+  [k: string]: unknown;
+}
+
+function unwrapOffer(res: unknown): RemoteOffer {
+  const r = res as { item?: RemoteOffer; offer?: RemoteOffer; id?: string };
+  const o = (r.item ?? r.offer ?? r) as RemoteOffer;
+  if (!o || !o.id) throw new TermixError(`offer response carries no id: ${JSON.stringify(res).slice(0, 300)}`);
+  return o;
 }
 
 let shared: TermixClient | undefined;
