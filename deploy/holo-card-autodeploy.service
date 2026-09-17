@@ -1,0 +1,11 @@
+# Redeploys when origin/main moves. Triggered by holo-card-autodeploy.timer (every minute).
+[Unit]
+Description=Holo Card Agent — pull origin/main and redeploy if it changed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/holo-card-agent
+ExecStart=/bin/bash /opt/holo-card-agent/deploy/deploy.sh
+TimeoutStartSec=1800

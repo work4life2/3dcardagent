@@ -105,6 +105,22 @@ Two sources, shown side by side in the dashboard ("Usage & spend") and in `GET /
 
 ## Deployment
 
+### Fresh cloud server (git clone + auto-deploy on push)
+
+```bash
+# on the server, as root — installs packages, Node 22, nginx, a 2 GB swapfile, clones the repo to /opt/holo-card-agent,
+# registers the systemd service and a 1-minute timer that redeploys whenever origin/main moves
+curl -fsSL https://raw.githubusercontent.com/work4life2/3dcardagent/main/deploy/server-bootstrap.sh \
+  | DASH_USER=admin DASH_PASS='<password>' bash
+# then: copy .env.local (WALLET_KEY, AI_GATEWAY_API_KEY, A2A_AGENT_ID, PUBLIC_BASE_URL, …) to /opt/holo-card-agent/
+sudo -u holocard bash -c 'cd /opt/holo-card-agent && npm run setup'     # three.js, Blender, doctor
+systemctl start holo-card-agent
+```
+
+nginx listens on :80: `/cards/`, `/jobs/<id>/renders/` and `/health` are public (preview links for buyers); everything else
+(dashboard, `/api/*`) is behind HTTP basic auth. Push to `main` → `deploy/deploy.sh` runs within a minute (`npm ci`, build,
+restart); `journalctl -u holo-card-autodeploy` shows each deploy, `deploy/deploy.sh --force` redeploys by hand.
+
 ### systemd (bare metal)
 
 ```bash

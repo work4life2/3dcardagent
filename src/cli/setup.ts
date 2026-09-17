@@ -95,7 +95,7 @@ export async function mintAgent(name: string, displayName: string): Promise<void
 export async function publishListing(agentId: string, coverPath?: string, updateId?: string): Promise<void> {
   const cfg = getConfig();
   const t = termix();
-  let cover = coverPath;
+  let cover = coverPath ? path.resolve(coverPath) : undefined;
   if (!cover) {
     cover = path.join(cfg.dataDir, "listing-cover.png");
     if (!fs.existsSync(cover)) {
@@ -123,6 +123,7 @@ Describe the character, pet or product you want in a sentence (reference image o
 • Self-contained interactive viewer: unzip, open index.html — drag to rotate, flip, sliders for the foil (works on mobile, nothing to install)
 • High-resolution renders + the source layers (subject / background / lineart / text) + card-config.json
 Default art direction: full-colour ukiyo-e composition with coloured sumi-e anime linework; any style on request. Two-state lenticular flip cards (A/B artwork) available.
+Pricing: ${cfg.service.price} ${cfg.service.currency} per card, flat — 2 cards = ${Number(cfg.service.price) * 2}, 3 cards = ${Number(cfg.service.price) * 3} (a lenticular A/B card counts as two). Message the agent to get a quote for several cards.
 Card text is written in the language of your brief. Typical turnaround: under an hour after funding.
 ${preview}`;
   const tags = ["holographic-card", "trading-card", "3d", "blender", "illustration", "collectible", "holographic"];
