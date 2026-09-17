@@ -150,15 +150,59 @@ async function geminiGenerate(o: GenerateOptions): Promise<GenerateResult> {
 }
 
 /**
- * The relay's OpenAI Images API: one key, any gpt-image-* model (default gpt-image-2, native
- * transparent background for the subject layer). The relay reports token usage but no price,
- * so the ledger records the call with cost 0 (the relay's own billing page is authoritative).
+ * Image generation through the relay: gpt-image-* via the OpenAI Images API (native transparent
+ * background for the subject layer), gemini-*-image via chat completions (cheaper, no alpha).
+ * The relay reports token usage but no price, so the ledger records the call with cost 0.
  */
+/**
+ * Gemini image models on the relay (gemini-*-image) are not routed to the Images API ("only imagen
+ * models are supported"); they answer on chat completions with the image inlined as a data URL
+ * (markdown `![image](data:image/png;base64,…)` or an `images[]` array). No alpha: the tool tells the
+ * model to use chroma_key for the subject layer.
+ */
+async function relayChatImageGenerate(o: GenerateOptions, t: ImagesApiTarget): Promise<{ buf: Buffer; usage?: { input_tokens?: number; output_tokens?: number } }> {
+  const size = o.size ?? "1024x1536";
+  const [w, h] = size.split("x").map(Number);
+  const ratio = w === h ? "1:1" : w > h ? "3:2" : "2:3";
+  const content: unknown[] = [];
+  for (const img of o.images ?? []) content.push({ type: "image_url", image_url: { url: `data:${mimeOf(img)};base64,${fs.readFileSync(img).toString("base64")}` } });
+  content.push({ type: "text", text: `${o.prompt}\n\nOutput a single image with aspect ratio ${ratio} (${size}). Reply with the image only, no text.` });
+  const res = await fetch(`${t.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${t.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: t.model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+    signal: AbortSignal.timeout(300_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`relay chat image API ${res.status}: ${text.slice(0, 500)}`);
+  const json = JSON.parse(text) as {
+    choices?: Array<{ message?: { content?: string | Array<{ type?: string; image_url?: { url?: string }; text?: string }>; images?: Array<{ image_url?: { url?: string } }> } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const msg = json.choices?.[0]?.message;
+  const urls: string[] = [];
+  for (const im of msg?.images ?? []) if (im.image_url?.url) urls.push(im.image_url.url);
+  const c = msg?.content;
+  if (typeof c === "string") for (const m of c.matchAll(/data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g)) urls.push(m[0]);
+  else for (const part of c ?? []) if (part.image_url?.url) urls.push(part.image_url.url);
+  const url = urls[0];
+  if (!url) throw new Error(`relay chat image API returned no image: ${text.slice(0, 300)}`);
+  const m = /^data:image\/[a-z]+;base64,(.+)$/.exec(url);
+  const buf = m ? Buffer.from(m[1], "base64") : Buffer.from(await (await fetch(url, { signal: AbortSignal.timeout(120_000) })).arrayBuffer());
+  fs.mkdirSync(path.dirname(o.outPath), { recursive: true });
+  fs.writeFileSync(o.outPath, buf);
+  return { buf, usage: { input_tokens: json.usage?.prompt_tokens, output_tokens: json.usage?.completion_tokens } };
+}
+
+/** Models the relay serves through the OpenAI Images API (with native alpha); everything else goes via chat. */
+const IMAGES_API_MODEL = /^(gpt-image|dall-e)/i;
+
 async function relayGenerate(o: GenerateOptions): Promise<GenerateResult> {
   const { relay } = getConfig();
   if (!relay.apiKey) throw new Error("RELAY_API_KEY is not set (put it in .env.local)");
   const model = getModels().imageModel;
-  const { buf, usage } = await imagesApiGenerate(o, { baseUrl: `${relay.baseUrl}/v1`, apiKey: relay.apiKey, model });
+  const target = { baseUrl: `${relay.baseUrl}/v1`, apiKey: relay.apiKey, model };
+  const { buf, usage } = IMAGES_API_MODEL.test(model) ? await imagesApiGenerate(o, target) : await relayChatImageGenerate(o, target);
   recordUsage({
     kind: "image",
     jobId: o.jobId,
@@ -177,7 +221,7 @@ async function relayGenerate(o: GenerateOptions): Promise<GenerateResult> {
     model,
     bytes: buf.length,
     transparentRequested: Boolean(o.transparent),
-    transparentSupported: /^gpt-image/i.test(model),
+    transparentSupported: IMAGES_API_MODEL.test(model),
   };
 }
 

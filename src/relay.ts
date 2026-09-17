@@ -101,12 +101,11 @@ export interface ModelOption {
 }
 
 /**
- * Image generators reachable through the relay's OpenAI Images API. New API only routes
- * OpenAI-style image models (gpt-image-*, dall-e-*) there; Gemini image models are rejected
- * ("only imagen models are supported"), so they are not offered.
+ * Image generators: gpt-image-* / dall-e-* go through the relay's OpenAI Images API (native alpha);
+ * gemini-*-image models answer on chat completions with an inline image (no alpha, cheaper).
  */
 export function isImageGenerator(m: RelayModel): boolean {
-  return /^(gpt-image|dall-e)/i.test(m.id);
+  return /^(gpt-image|dall-e)/i.test(m.id) || /^gemini.*-image/i.test(m.id);
 }
 
 /** Anthropic-native models (call them via /v1/messages so tool use and thinking work natively). */
@@ -154,7 +153,7 @@ export function imageOptions(catalog: RelayCatalog | undefined): ModelOption[] {
   return catalog.models
     .filter(isImageGenerator)
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((m) => ({ id: m.id, name: m.id, label: `${vendorOf(m.id)} · images API · price: see relay`, tags: [vendorOf(m.id)], source: "relay" as const }));
+    .map((m) => ({ id: m.id, name: m.id, label: `${vendorOf(m.id)} · ${/^gemini/i.test(m.id) ? "chat image, no alpha (chroma key)" : "images API, native alpha"} · price: see relay`, tags: [vendorOf(m.id)], source: "relay" as const }));
 }
 
 /* ---------- spend (OpenAI-compatible billing endpoints of the relay) ---------- */

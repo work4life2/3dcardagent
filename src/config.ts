@@ -94,7 +94,7 @@ export function getConfig(): Config {
     },
     image: {
       provider,
-      relayModel: env("RELAY_IMAGE_MODEL", "gpt-image-2"),
+      relayModel: env("RELAY_IMAGE_MODEL", "gemini-3.1-flash-image"),
       openaiKey: env("OPENAI_IMAGE_API_KEY", env("OPENAI_API_KEY")),
       openaiBaseUrl: env("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1").replace(/\/+$/, ""),
       openaiModel: env("OPENAI_IMAGE_MODEL", "gpt-image-1"),
