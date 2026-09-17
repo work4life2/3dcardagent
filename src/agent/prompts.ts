@@ -36,8 +36,9 @@ If it fails, read the error, fix the asset/config and rerun. After success confi
 card.blend, renders/hero.png, web/assets/card.glb, web/card-config.json.
 
 ## Finish
-All card text (title, subtitle, technique, tagline, collection) and \`DELIVERY.md\` must be written in the
-language the buyer used in the brief (English if the brief is in English or the language is unclear).
+All card text (title, subtitle, technique, tagline, collection, description) and \`DELIVERY.md\` must be written in the
+language the buyer used in the brief (English if the brief is in English or the language is unclear). The viewer's
+own UI is bilingual and switches automatically ("lang" in card-config.json is set by the service), do not translate it.
 When done, write \`DELIVERY.md\` in the project dir: a short buyer-facing note (under 1500 characters) describing
 the card and the style choices. It is sent to the buyer as the delivery message together with the viewer zip and a
 preview render, so do not list internal files or paths.

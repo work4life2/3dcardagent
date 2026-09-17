@@ -4,6 +4,8 @@ import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+import {applyI18n,pickLang} from './i18n.js';
+let t=k=>k,lang='en';
 
 const stage=document.querySelector('#stage'), loading=document.querySelector('#loading');
 const $=id=>document.getElementById(id);
@@ -62,10 +64,10 @@ void main(){vec4 art=texture2D(tBack,vec2(1.-vUv.x,vUv.y));vec2 p=vUv-.5;float f
 #include <tonemapping_fragment>
 #include <colorspace_fragment>
 }`;
-function backTexture(){const c=document.createElement('canvas');c.width=1024;c.height=1536;const ctx=c.getContext('2d');ctx.clearRect(0,0,1024,1536);ctx.strokeStyle='#c2a368';ctx.lineWidth=2;ctx.strokeRect(74,74,876,1388);ctx.strokeRect(87,87,850,1362);ctx.save();ctx.translate(512,650);ctx.rotate(Math.PI/4);ctx.strokeRect(-210,-210,420,420);ctx.strokeRect(-196,-196,392,392);ctx.restore();ctx.textAlign='center';ctx.fillStyle='#dbc18b';ctx.font='166px KaiTi, STKaiti, serif';ctx.fillText(config.subtitle?.includes('雷')?'雷':'幻',512,709);ctx.font='31px KaiTi, STKaiti, serif';ctx.fillText(config.collection||'幻光典藏',512,1050);ctx.font='20px Georgia';ctx.fillStyle='#a09a8f';ctx.fillText('HOLOGRAPHIC ATELIER',512,1114);ctx.font='20px Georgia';ctx.fillText(config.edition||'001',512,1310);const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.NoColorSpace;return tex;}
+function backTexture(){const c=document.createElement('canvas');c.width=1024;c.height=1536;const ctx=c.getContext('2d');ctx.clearRect(0,0,1024,1536);ctx.strokeStyle='#c2a368';ctx.lineWidth=2;ctx.strokeRect(74,74,876,1388);ctx.strokeRect(87,87,850,1362);ctx.save();ctx.translate(512,650);ctx.rotate(Math.PI/4);ctx.strokeRect(-210,-210,420,420);ctx.strokeRect(-196,-196,392,392);ctx.restore();ctx.textAlign='center';ctx.fillStyle='#dbc18b';ctx.font='166px KaiTi, STKaiti, serif';ctx.fillText(lang==='zh'?(config.subtitle?.includes('雷')?'雷':'幻'):'H',512,709);ctx.font=lang==='zh'?'31px KaiTi, STKaiti, serif':'31px Georgia, serif';ctx.fillText(config.collection||t('brand'),512,1050);ctx.font='20px Georgia';ctx.fillStyle='#a09a8f';ctx.fillText('HOLOGRAPHIC ATELIER',512,1114);ctx.font='20px Georgia';ctx.fillText(config.edition||'001',512,1310);const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.NoColorSpace;return tex;}
 async function init(){
- config=await fetch('./card-config.json').then(r=>{if(!r.ok)throw Error('找不到卡牌配置');return r.json();});
- document.title=config.title+' · 幻光典藏';for(const [id,key]of Object.entries({'card-title':'title','collection':'collection','subtitle':'subtitle','description':'description','tagline':'tagline','technique':'technique','edition':'edition'}))if(config[key])$(id).textContent=config[key];
+ config=await fetch('./card-config.json').then(r=>{if(!r.ok)throw Error(t('err-config'));return r.json();});
+ lang=pickLang(config);t=applyI18n(lang);document.title=config.title+' · '+t('doc-title');$('view-label').textContent=t('view-front');$('auto').innerHTML=t('auto');$('flip').innerHTML=t('flip');for(const [id,key]of Object.entries({'card-title':'title','collection':'collection','subtitle':'subtitle','description':'description','tagline':'tagline','technique':'technique','edition':'edition'}))if(config[key])$(id).textContent=config[key];
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});renderer.setClearColor(0xffffff,1);renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;stage.append(renderer.domElement);
  composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));composer.addPass(new UnrealBloomPass(new THREE.Vector2(720,1000),.18,.35,1.0));composer.addPass(new OutputPass());
  const loader=new THREE.TextureLoader();const names=['subject','background','text','lineart'];const textures=await Promise.all(names.map(name=>loader.loadAsync(config.assets[name])));textures.forEach(t=>{t.colorSpace=THREE.NoColorSpace;t.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);});
@@ -73,14 +75,14 @@ async function init(){
  const frontMat=new THREE.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:fragment,side:THREE.FrontSide});const edgeMat=new THREE.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:edgeFragment});const backMat=new THREE.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:backFragment});const goldMat=new THREE.MeshBasicMaterial({color:0xbfa26b});
  const gltf=await new GLTFLoader().loadAsync(config.assets.model);root=new THREE.Group();root.add(gltf.scene);scene.add(root);
  gltf.scene.traverse(ob=>{if(!ob.isMesh)return;const role=ob.material?.name;if(role==='web_front'){ob.material=frontMat;face=ob;}else if(role==='web_back')ob.material=backMat;else if(role==='web_gold')ob.material=goldMat;else if(role==='web_text')ob.visible=false;else ob.material=edgeMat;});
- if(!face)throw Error('Blender 模型中缺少 web_front 材质，请重新导出模型。');
+ if(!face)throw Error(t('err-front'));
  setupControls();new ResizeObserver(resize).observe(stage);resize();loading.remove();
  window.__holo={ready:true,config,renderer,root,uniforms,reset,modelSource:config.assets.model};renderer.setAnimationLoop(animate);
 }
 function resize(){const w=stage.clientWidth,h=stage.clientHeight;if(!w||!h||!renderer)return;const aspect=w/h;const halfH=5.65/targetZoom;camera.left=-halfH*aspect;camera.right=halfH*aspect;camera.top=halfH;camera.bottom=-halfH;camera.updateProjectionMatrix();renderer.setSize(w,h);composer.setSize(w,h);}
-function setAuto(value){auto=value;$('auto').setAttribute('aria-pressed',String(auto));$('auto').innerHTML=auto?'<span>Ⅱ</span> 暂停赏卡':'<span>▷</span> 自动赏卡';}
-function reset(){targetX=.025;targetY=-.13;targetZoom=1;flipped=false;setAuto(false);$('flip').innerHTML='翻看背面 <span>↻</span>';$('view-label').textContent='FRONT · 正面';resize();}
-function flip(){flipped=!flipped;setAuto(false);targetY=flipped?Math.PI:0;targetX=0;$('flip').innerHTML=flipped?'回到正面 <span>↻</span>':'翻看背面 <span>↻</span>';$('view-label').textContent=flipped?'BACK · 背面':'FRONT · 正面';}
+function setAuto(value){auto=value;$('auto').setAttribute('aria-pressed',String(auto));$('auto').innerHTML=auto?t('auto-pause'):t('auto');}
+function reset(){targetX=.025;targetY=-.13;targetZoom=1;flipped=false;setAuto(false);$('flip').innerHTML=t('flip');$('view-label').textContent=t('view-front');resize();}
+function flip(){flipped=!flipped;setAuto(false);targetY=flipped?Math.PI:0;targetX=0;$('flip').innerHTML=flipped?t('flip-back'):t('flip');$('view-label').textContent=flipped?t('view-back'):t('view-front');}
 function setupControls(){
  for(const [id,name,label] of [['foil','uFoil','foil-value'],['scale','uScale','scale-value'],['depth','uDepth','depth-value'],['bg-depth','uBgDepth','bg-depth-value']]){const input=$(id);input.value=uniforms[name].value;const update=()=>{uniforms[name].value=Number(input.value);$(label).value=id==='foil'?Math.round(input.value*100)+'%':Number(input.value).toFixed(2);};input.addEventListener('input',update);update();}
  stage.addEventListener('pointerdown',e=>{if(e.button!==0)return;dragging=true;setAuto(false);last={x:e.clientX,y:e.clientY};stage.setPointerCapture(e.pointerId);stage.focus({preventScroll:true});});
@@ -89,10 +91,10 @@ function setupControls(){
  stage.addEventListener('wheel',e=>{e.preventDefault();targetZoom=THREE.MathUtils.clamp(targetZoom-e.deltaY*.001,.82,1.18);resize();},{passive:false});
  stage.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','f','F','r','R'].includes(e.key)){e.preventDefault();setAuto(false);}const base=flipped?Math.PI:0;if(e.key==='ArrowLeft')targetY-=.07;if(e.key==='ArrowRight')targetY+=.07;if(e.key==='ArrowUp')targetX-=.06;if(e.key==='ArrowDown')targetX+=.06;if(e.key.toLowerCase()==='f')flip();if(e.key.toLowerCase()==='r')reset();const currentBase=flipped?Math.PI:0;targetY=THREE.MathUtils.clamp(targetY,currentBase-.65,currentBase+.65);targetX=THREE.MathUtils.clamp(targetX,-.43,.43);});
  $('auto').onclick=()=>{if(flipped)flip();setAuto(!auto);};$('flip').onclick=flip;$('reset').onclick=reset;
- $('save').onclick=()=>{try{composer.render();const a=document.createElement('a');a.download=(config.title||'card')+'-holographic.png';a.href=renderer.domElement.toDataURL('image/png');a.click();}catch(e){$('save').textContent='保存失败，请重试';}};
+ $('save').onclick=()=>{try{composer.render();const a=document.createElement('a');a.download=(config.title||'card')+'-holographic.png';a.href=renderer.domElement.toDataURL('image/png');a.click();}catch(e){$('save').textContent=t('save-failed');}};
  $('details').onclick=$('soundless').onclick=()=>$('about').showModal();$('about').querySelector('.close').onclick=()=>$('about').close();
 }
 function animate(now){const dt=Math.min((now-lastTime)/1000,.1)||0;lastTime=now;if(!document.hidden)elapsed+=dt;if(auto){targetY=Math.sin(elapsed*.65)*.38;targetX=Math.sin(elapsed*.85)*.12;}
  const ease=reduced?1:1-Math.exp(-dt*8);rotationX+=(targetX-rotationX)*ease;rotationY+=(targetY-rotationY)*ease;root.rotation.set(rotationX,rotationY,0);root.updateMatrixWorld(true);
  uniforms.uView.value.copy(camera.position).applyMatrix4(new THREE.Matrix4().copy(root.matrixWorld).invert()).normalize();uniforms.uTime.value=reduced&&!auto?0:elapsed;composer.render();}
-init().catch(error=>{console.error(error);loading.textContent='卡牌暂时无法加载。\n'+error.message+'\n请通过本地服务打开网页，并确认素材已生成。';loading.setAttribute('role','alert');window.__holo={ready:false,error:error.message};});
+init().catch(error=>{console.error(error);loading.textContent=t('err-load')+error.message+t('err-load-hint');loading.setAttribute('role','alert');window.__holo={ready:false,error:error.message};});

@@ -4,6 +4,7 @@ import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { run } from "../util/exec.js";
 import { cardBuildGuidelines, cardBuildPrompt } from "../agent/prompts.js";
+import { isChinese } from "../util/lang.js";
 import { createCardSession } from "../agent/session.js";
 import { pickDefaultFont } from "../agent/fonts.js";
 import { getModels } from "../runtimeConfig.js";
@@ -53,6 +54,27 @@ export function verifyOutputs(dir: string): { ok: boolean; missing: string[]; ou
       config,
     },
   };
+}
+
+/**
+ * The viewer's own UI (buttons, hints, notes) follows the language the buyer used: the brief is
+ * written in the buyer's language, so `lang` is derived from it and written into both copies of
+ * card-config.json (project root and web/). The card text itself is authored by the model.
+ */
+export function setViewerLang(job: Job, config: Record<string, unknown>): void {
+  const lang = isChinese(job.brief) ? "zh" : "en";
+  config.lang = lang;
+  for (const file of [path.join(job.dir, "card-config.json"), path.join(job.dir, "web", "card-config.json")]) {
+    try {
+      const json = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+      if (json.lang === lang) continue;
+      json.lang = lang;
+      fs.writeFileSync(file, JSON.stringify(json, null, 2));
+    } catch (err) {
+      log.warn(`could not set lang in ${file}: ${String(err)}`);
+    }
+  }
+  log.info(`job ${job.id}: viewer language ${lang}`);
 }
 
 /** Make the copied web viewer runnable by linking the pre-installed three.js dependency. */
@@ -143,6 +165,7 @@ export async function buildCard(job: Job, extraInstructions?: string): Promise<B
     }
     const v = verifyOutputs(job.dir);
     if (v.ok && v.outputs) {
+      setViewerLang(job, v.outputs.config);
       linkWebDeps(v.outputs.webDir);
       transcript.end();
       log.info(`job ${job.id}: build verified`, { mode: v.outputs.mode, renders: v.outputs.renders.length });
