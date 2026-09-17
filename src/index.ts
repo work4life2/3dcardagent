@@ -15,8 +15,8 @@ Usage:
   holo-card-agent setup [agents|mint <name> "<display name>"|listing [cover.png] [--update <listingId>]|deps]
   holo-card-agent model [show|list [filter] [--refresh]|build <id>|chat <id>|image <id>|thinking <lvl>|reset]
                                               switch models at runtime (takes effect immediately, no restart);
-                                              "list" prints the live Vercel AI Gateway catalog with prices
-  holo-card-agent usage [--days N]            token & cost report: per job/model (local) + the Gateway's bill and balance
+                                              "list" prints the relay's live model catalog
+  holo-card-agent usage [--days N]            token & cost report: per job/model (local) + the relay's bill
   holo-card-agent doctor                      check environment and configuration
   holo-card-agent make "<brief>" [--ref <image path or URL>] [--name <jobId>]
                                               build one card locally (no marketplace), for testing
@@ -128,21 +128,21 @@ async function main() {
         setModels({ buildModel: "", chatModel: "", imageModel: "", thinking: "" });
         process.stdout.write("Reset to the .env defaults\n");
       } else if (sub === "list") {
-        // Live Gateway catalog (with prices) + whatever else pi has credentials for.
-        const { gatewayCatalog, languageOptions, imageOptions } = await import("./gateway.js");
-        const { syncGatewayModels } = await import("./agent/session.js");
-        const catalog = await gatewayCatalog({ force: rest.includes("--refresh") });
-        await syncGatewayModels().catch(() => undefined);
+        // Live relay catalog + whatever else pi has credentials for.
+        const { relayCatalog, languageOptions, imageOptions } = await import("./relay.js");
+        const { syncRelayModels } = await import("./agent/session.js");
+        const catalog = await relayCatalog({ force: rest.includes("--refresh") });
+        await syncRelayModels().catch(() => undefined);
         const filter = rest.slice(1).find((a) => !a.startsWith("--"))?.toLowerCase();
         const show = (title: string, rows: Array<{ id: string; label: string }>) => {
           const list = rows.filter((r) => !filter || r.id.toLowerCase().includes(filter));
           process.stdout.write(`\n${title} (${list.length})\n`);
           for (const r of list) process.stdout.write(`  ${r.id.padEnd(58)} ${r.label}\n`);
         };
-        if (!catalog) process.stdout.write("Gateway catalog unavailable (AI_GATEWAY_API_KEY missing or offline)\n");
-        else process.stdout.write(`Gateway catalog fetched ${catalog.fetchedAt}\n`);
+        if (!catalog) process.stdout.write("Relay catalog unavailable (RELAY_API_KEY missing or offline)\n");
+        else process.stdout.write(`Relay catalog fetched ${catalog.fetchedAt} (${getConfig().relay.baseUrl}; prices are on the relay's own pricing page)\n`);
         show("Text models (pi ids)", languageOptions(catalog));
-        show("Image models (Gateway ids)", imageOptions(catalog));
+        show("Image models (relay ids, OpenAI Images API)", imageOptions(catalog));
       } else if (map[sub] && rest[1]) {
         if (sub !== "image" && sub !== "thinking") {
           const { resolveModel } = await import("./agent/session.js");
@@ -164,13 +164,13 @@ async function main() {
       break;
     }
     case "usage": {
-      // Token & cost report: the local per-job ledger and the Gateway's own bill / balance.
+      // Token & cost report: the local per-job ledger and the relay's own bill.
       const { summarizeUsage, fmtUsd } = await import("./usage.js");
-      const { gatewaySpend } = await import("./gateway.js");
+      const { relaySpend } = await import("./relay.js");
       const days = Number(rest[rest.indexOf("--days") + 1]) || 30;
       const l = summarizeUsage();
       const row = (t: { calls: number; input: number; output: number; cacheRead: number; cost: number }) => `${String(t.calls).padStart(6)} calls ${String(t.input).padStart(11)} in ${String(t.output).padStart(10)} out ${String(t.cacheRead).padStart(11)} cached  ${fmtUsd(t.cost)}`;
-      process.stdout.write(`This agent (local ledger ${l.file})\n  today     ${row(l.today)}\n  last 7 d  ${row(l.last7d)}\n  last 30 d ${row(l.last30d)}\n  all time  ${row(l.allTime)}\n`);
+      process.stdout.write(`This agent (local ledger ${l.file}; pi calls carry pi's estimate, relay image calls carry no price)\n  today     ${row(l.today)}\n  last 7 d  ${row(l.last7d)}\n  last 30 d ${row(l.last30d)}\n  all time  ${row(l.allTime)}\n`);
       if (l.byModel.length) {
         process.stdout.write(`\n  by model\n`);
         for (const m of l.byModel) process.stdout.write(`    ${m.model.padEnd(52)} ${row(m)}\n`);
@@ -179,20 +179,11 @@ async function main() {
         process.stdout.write(`\n  by job (top 15)\n`);
         for (const j of l.byJob.slice(0, 15)) process.stdout.write(`    ${j.jobId.padEnd(52)} ${row(j)}\n`);
       }
-      const g = await gatewaySpend(days);
-      process.stdout.write(`\nVercel AI Gateway bill (authoritative, ${g.startDate} → ${g.endDate})\n`);
+      const g = await relaySpend(days);
+      process.stdout.write(`\nRelay bill (${g.baseUrl}, authoritative, ${g.startDate} → ${g.endDate})\n`);
       if (g.error) process.stdout.write(`  unavailable: ${g.error}\n`);
-      if (g.credits) process.stdout.write(`  account balance ${fmtUsd(g.credits.balance)}   account total used ${fmtUsd(g.credits.totalUsed)}\n`);
-      const gwRow = (r: { requestCount?: number; inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; totalCost: number }) => `${String(r.requestCount ?? 0).padStart(6)} req   ${String(r.inputTokens ?? 0).padStart(11)} in ${String(r.outputTokens ?? 0).padStart(10)} out ${String(r.cachedInputTokens ?? 0).padStart(11)} cached  ${fmtUsd(r.totalCost)}`;
-      process.stdout.write(`\n  this agent only (requests tagged "${g.tag}")\n`);
-      if (!g.byModel.length) process.stdout.write(`    nothing tagged yet — appears after the first build or chat with this version\n`);
-      for (const r of g.byModel) process.stdout.write(`    ${(r.model ?? "").padEnd(52)} ${gwRow(r)}\n`);
-      if (g.byModel.length) process.stdout.write(`    total ${fmtUsd(g.byModel.reduce((a, r) => a + r.totalCost, 0))}\n`);
-      if (g.teamByModel.length) {
-        process.stdout.write(`\n  whole account (every key and client on the team, incl. non-agent traffic)\n`);
-        for (const r of g.teamByModel) process.stdout.write(`    ${(r.model ?? "").padEnd(52)} ${gwRow(r)}\n`);
-        process.stdout.write(`    total ${fmtUsd(g.teamTotal)}\n`);
-      }
+      if (g.totalUsed !== undefined) process.stdout.write(`  used by this key in range ${fmtUsd(g.totalUsed)}\n`);
+      process.stdout.write(`  remaining quota ${g.remaining !== undefined ? fmtUsd(g.remaining) : "unlimited / not reported"}\n`);
       break;
     }
     case "pi": {

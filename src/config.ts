@@ -40,10 +40,12 @@ export interface Config {
   toolsDir: string;
   agentDir: string;
   llm: { model: string; chatModel: string; thinking: string };
+  /** OpenAI-compatible relay (New API style) used for chat and images: RELAY_BASE_URL + RELAY_API_KEY. */
+  relay: { baseUrl: string; apiKey: string };
   image: {
-    provider: "gateway" | "openai" | "gemini" | "mock";
-    gatewayKey: string;
-    gatewayModel: string;
+    provider: "relay" | "openai" | "gemini" | "mock";
+    /** Image model id on the relay (OpenAI Images API), e.g. gpt-image-2 */
+    relayModel: string;
     openaiKey: string;
     openaiBaseUrl: string;
     openaiModel: string;
@@ -71,8 +73,8 @@ export function getConfig(): Config {
   loadDotEnv();
   const dataDir = path.resolve(ROOT, env("DATA_DIR", "./data"));
   const skillsDir = path.join(ROOT, "skills");
-  const providerRaw = env("IMAGE_PROVIDER", "gateway").toLowerCase();
-  const provider = providerRaw === "gemini" ? "gemini" : providerRaw === "mock" ? "mock" : providerRaw === "openai" ? "openai" : "gateway";
+  const providerRaw = env("IMAGE_PROVIDER", "relay").toLowerCase();
+  const provider = providerRaw === "gemini" ? "gemini" : providerRaw === "mock" ? "mock" : providerRaw === "openai" ? "openai" : "relay";
   cached = {
     root: ROOT,
     dataDir,
@@ -82,14 +84,17 @@ export function getConfig(): Config {
     toolsDir: path.join(ROOT, "tools"),
     agentDir: path.resolve(ROOT, env("PI_CODING_AGENT_DIR", path.join(dataDir, "pi-agent"))),
     llm: {
-      model: env("PI_MODEL", "vercel-ai-gateway/google/gemini-3-flash"),
-      chatModel: env("PI_CHAT_MODEL", env("PI_MODEL", "vercel-ai-gateway/google/gemini-3.1-flash-lite")),
+      model: env("PI_MODEL", "relay/gemini-3-flash"),
+      chatModel: env("PI_CHAT_MODEL", env("PI_MODEL", "relay/gemini-2.5-flash-lite")),
       thinking: env("PI_THINKING", "medium"),
+    },
+    relay: {
+      baseUrl: env("RELAY_BASE_URL", "https://www.cun.ai").replace(/\/+$/, "").replace(/\/v1$/, ""),
+      apiKey: env("RELAY_API_KEY"),
     },
     image: {
       provider,
-      gatewayKey: env("AI_GATEWAY_API_KEY"),
-      gatewayModel: env("GATEWAY_IMAGE_MODEL", "openai/gpt-image-1-mini"),
+      relayModel: env("RELAY_IMAGE_MODEL", "gpt-image-2"),
       openaiKey: env("OPENAI_IMAGE_API_KEY", env("OPENAI_API_KEY")),
       openaiBaseUrl: env("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1").replace(/\/+$/, ""),
       openaiModel: env("OPENAI_IMAGE_MODEL", "gpt-image-1"),

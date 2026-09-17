@@ -8,10 +8,10 @@ import { logger } from "./log.js";
  *
  * - pi language calls: tokens come from the provider; cost is pi's estimate from its price
  *   table (source "pi-estimate").
- * - Gateway image calls: cost is what the gateway itself billed (source "gateway").
+ * - Relay image calls: the relay reports tokens but no price, so cost is 0 (source "none").
  *
- * The gateway spend report (src/gateway.ts) is the authoritative bill; this ledger is what
- * lets us attribute spend to jobs and conversations, which the gateway cannot do.
+ * The relay's own billing (src/relay.ts, `npm run usage`) is the authoritative bill; this ledger
+ * is what lets us attribute calls to jobs and conversations, which the relay cannot do.
  */
 
 const log = logger("usage");
@@ -23,7 +23,7 @@ export interface UsageRecord {
   kind: UsageKind;
   jobId?: string;
   conversationId?: string;
-  /** e.g. vercel-ai-gateway/google/gemini-3-flash or openai/gpt-image-1-mini */
+  /** e.g. relay/gemini-3-flash or gpt-image-2 */
   model: string;
   provider: string;
   input: number;
@@ -33,7 +33,7 @@ export interface UsageRecord {
   reasoning?: number;
   /** USD */
   cost: number;
-  source: "pi-estimate" | "gateway" | "none";
+  source: "pi-estimate" | "relay" | "none";
   generationId?: string;
   durationMs?: number;
 }

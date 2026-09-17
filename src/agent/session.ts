@@ -13,12 +13,18 @@ import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { createHoloTools, HOLO_TOOL_NAMES } from "./tools.js";
 import { getModels } from "../runtimeConfig.js";
-import { gatewayCatalog, isTextModel, perMillion, reportingHeaders, type GatewayCatalog } from "../gateway.js";
+import { isAnthropicModel, isTextModel, relayBaseUrl, relayCatalog, relayKey, RELAY_PROVIDER, type RelayCatalog } from "../relay.js";
 import { trackSessionUsage, type UsageContext } from "../usage.js";
 
 const log = logger("pi");
-const GATEWAY_PROVIDER = "vercel-ai-gateway";
-const GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh";
+
+function readModelsJson(file: string): { providers?: Record<string, unknown> } {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return {};
+  }
+}
 
 /**
  * If the operator uses an Anthropic-compatible relay (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN),
@@ -37,19 +43,12 @@ export function ensureModelsJson(): void {
     if (provider === "anthropic-proxy" && rest.length) wanted.add(rest.join("/").split(":")[0]);
   }
   if (wanted.size === 0) wanted.add("claude-sonnet-4-5");
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    /* new file */
-  }
-  const providers = ((existing.providers as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const existing = readModelsJson(file);
+  const providers = { ...(existing.providers ?? {}) } as Record<string, unknown>;
   providers["anthropic-proxy"] = {
     baseUrl,
     api: "anthropic-messages",
     apiKey: process.env.ANTHROPIC_AUTH_TOKEN ? "$ANTHROPIC_AUTH_TOKEN" : "$ANTHROPIC_API_KEY",
-    // If the relay is the Gateway itself, tag the traffic like everything else we send there.
-    ...(/ai-gateway\.vercel\.sh/.test(baseUrl) ? { headers: reportingHeaders() } : {}),
     models: [...wanted].map((id) => ({ id, reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 32000 })),
   };
   fs.writeFileSync(file, JSON.stringify({ ...existing, providers }, null, 2));
@@ -57,85 +56,86 @@ export function ensureModelsJson(): void {
 }
 
 /**
- * pi ships a static snapshot of the Gateway catalog. Models the Gateway added since then are
- * written into <agentDir>/models.json under the built-in `vercel-ai-gateway` provider (with the
- * Gateway's own prices), so anything on the live list can be selected. Returns the ids added.
+ * The relay is not one of pi's built-in providers, so every text model on its live catalog is
+ * written into <agentDir>/models.json under the `relay` provider: Claude models through the
+ * relay's Anthropic Messages endpoint, everything else through OpenAI chat completions. The
+ * relay publishes no prices, so cost is 0 and the local ledger only has token counts for pi
+ * calls. Returns the ids registered.
  */
-export function writeGatewayModelsJson(catalog: GatewayCatalog | undefined, known: Set<string>): { added: string[]; changed: boolean } {
+export function writeRelayModelsJson(catalog: RelayCatalog | undefined): { ids: string[]; changed: boolean } {
   const cfg = getConfig();
   const file = path.join(cfg.agentDir, "models.json");
-  let existing: { providers?: Record<string, unknown> } = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    /* new file */
-  }
+  const existing = readModelsJson(file);
   const providers = { ...(existing.providers ?? {}) } as Record<string, unknown>;
-  const before = JSON.stringify(providers[GATEWAY_PROVIDER] ?? null);
-  // `known` comes from the running registry, which already includes our previous overlay; only ids
-  // that are *not* from the overlay count as built-in.
-  const overlayIds = new Set(((providers[GATEWAY_PROVIDER] as { models?: Array<{ id: string }> } | undefined)?.models ?? []).map((m) => m.id));
-  const builtin = new Set([...known].filter((id) => !overlayIds.has(id)));
-  const missing = (catalog?.models ?? []).filter((m) => isTextModel(m) && !builtin.has(m.id));
-  // The overlay is always present: the attribution headers make every pi → Gateway request show up
-  // under this agent's tag in the spend report. Auth still comes from AI_GATEWAY_API_KEY.
-  const { models: _prevModels, ...operatorKeys } = (providers[GATEWAY_PROVIDER] as Record<string, unknown> | undefined) ?? {};
-  providers[GATEWAY_PROVIDER] = {
-    ...operatorKeys, // keep anything the operator added by hand (e.g. baseUrl, compat)
-    headers: { ...(operatorKeys.headers as Record<string, string> | undefined), ...reportingHeaders() },
-    ...(missing.length && {
-      models: missing.map((m) => ({
-        id: m.id,
-        name: m.name,
-        api: "anthropic-messages",
-        baseUrl: GATEWAY_BASE_URL,
-        reasoning: (m.tags ?? []).includes("reasoning"),
-        input: (m.modalities?.input ?? ["text"]).filter((x) => x === "text" || x === "image"),
-        cost: {
-          input: perMillion(m.pricing?.input) ?? 0,
-          output: perMillion(m.pricing?.output) ?? 0,
-          cacheRead: perMillion(m.pricing?.input_cache_read) ?? 0,
-          cacheWrite: perMillion(m.pricing?.input_cache_write) ?? 0,
-        },
-        contextWindow: m.context_window > 0 ? m.context_window : 128_000,
-        maxTokens: m.max_tokens > 0 ? m.max_tokens : 16_384,
-      })),
-    }),
-  };
-  if (JSON.stringify(providers[GATEWAY_PROVIDER] ?? null) !== before) {
+  const before = JSON.stringify(providers[RELAY_PROVIDER] ?? null);
+  const baseUrl = relayBaseUrl();
+  const text = (catalog?.models ?? []).filter(isTextModel);
+  const models = text.map((m) => {
+    const anthropic = isAnthropicModel(m);
+    const id = m.id.toLowerCase();
+    return {
+      id: m.id,
+      name: m.id,
+      api: anthropic ? "anthropic-messages" : "openai-completions",
+      baseUrl: anthropic ? baseUrl : `${baseUrl}/v1`,
+      reasoning: anthropic || /gemini-[3-9]|gpt-5|deepseek-v4|glm-5|grok|kimi-k[3-9]|minimax-m|qwen3/.test(id),
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: anthropic ? 200_000 : /gemini/.test(id) ? 1_000_000 : 128_000,
+      maxTokens: anthropic ? 32_000 : 16_384,
+    };
+  });
+  // Ensure whatever the operator selected is registered even if the catalog is unreachable.
+  const wanted = new Set<string>();
+  const current = getModels();
+  for (const spec of [current.buildModel, current.chatModel]) {
+    const [provider, ...rest] = spec.split("/");
+    if (provider === RELAY_PROVIDER && rest.length) wanted.add(rest.join("/").split(":")[0]);
+  }
+  for (const id of wanted) {
+    if (models.some((m) => m.id === id)) continue;
+    const anthropic = /^claude/i.test(id);
+    models.push({
+      id, name: id, api: anthropic ? "anthropic-messages" : "openai-completions", baseUrl: anthropic ? baseUrl : `${baseUrl}/v1`, reasoning: true,
+      input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: anthropic ? 200_000 : 128_000, maxTokens: 16_384,
+    });
+  }
+  providers[RELAY_PROVIDER] = { baseUrl: `${baseUrl}/v1`, api: "openai-completions", apiKey: "$RELAY_API_KEY", models };
+  const changed = JSON.stringify(providers[RELAY_PROVIDER]) !== before;
+  if (changed) {
     fs.mkdirSync(cfg.agentDir, { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ ...existing, providers }, null, 2));
-    if (missing.length) log.info(`registered ${missing.length} gateway models pi did not know: ${missing.slice(0, 5).map((m) => m.id).join(", ")}${missing.length > 5 ? ", …" : ""}`);
+    log.info(`registered ${models.length} relay models (${baseUrl}) in ${file}`);
   }
-  return { added: missing.map((m) => m.id), changed: JSON.stringify(providers[GATEWAY_PROVIDER] ?? null) !== before };
+  return { ids: models.map((m) => m.id), changed };
 }
 
 let runtime: ModelRuntime | undefined;
 let lastSyncedCatalogAt = "";
 
-/** Pull the live Gateway catalog and make pi aware of new models. Safe to call often (catalog is cached). */
-export async function syncGatewayModels(opts: { force?: boolean } = {}): Promise<void> {
+/** Pull the live relay catalog and make pi aware of its models. Safe to call often (catalog is cached). */
+export async function syncRelayModels(opts: { force?: boolean } = {}): Promise<void> {
   const rt = await modelRuntime();
-  const catalog = await gatewayCatalog(opts);
-  if (!catalog || (catalog.fetchedAt === lastSyncedCatalogAt && !opts.force)) return;
-  lastSyncedCatalogAt = catalog.fetchedAt;
-  // Built-in ids = whatever pi knows for the provider *before* our overlay is applied. Reading from
-  // the runtime includes our own additions, so subtract those that came from models.json.
-  const known = new Set(rt.getModels().filter((m) => m.provider === GATEWAY_PROVIDER).map((m) => m.id));
-  const { changed } = writeGatewayModelsJson(catalog, known);
+  const catalog = await relayCatalog(opts);
+  if (catalog && catalog.fetchedAt === lastSyncedCatalogAt && !opts.force) return;
+  lastSyncedCatalogAt = catalog?.fetchedAt ?? "";
+  const { changed } = writeRelayModelsJson(catalog);
   if (changed) await rt.refresh();
 }
 
 export async function modelRuntime(): Promise<ModelRuntime> {
   if (runtime) return runtime;
   const cfg = getConfig();
+  // pi resolves `apiKey: "$RELAY_API_KEY"` from the process environment; .env.local is loaded by getConfig().
+  if (relayKey() && !process.env.RELAY_API_KEY) process.env.RELAY_API_KEY = relayKey();
   ensureModelsJson();
+  writeRelayModelsJson(await relayCatalog()); // before the runtime reads models.json, so the defaults resolve on first use
   runtime = await ModelRuntime.create({
     authPath: path.join(cfg.agentDir, "auth.json"),
     modelsPath: path.join(cfg.agentDir, "models.json"),
     modelsStorePath: path.join(cfg.agentDir, "models-store.json"),
   });
-  await syncGatewayModels().catch((err) => log.warn(`gateway model sync failed: ${String(err)}`));
+  await syncRelayModels().catch((err) => log.warn(`relay model sync failed: ${String(err)}`));
   return runtime;
 }
 

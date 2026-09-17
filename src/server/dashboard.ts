@@ -40,24 +40,21 @@ td.mono,th.num,td.num{font-family:ui-monospace,Menlo,monospace;font-size:12px}th
 <form class="models" id="models">
   <label>Card-building model (pi, tool use)<span class="combo"><input name="buildModel" data-list="llm" autocomplete="off" spellcheck="false" placeholder="type to search…"><div class="panel" hidden></div></span><span class="price" data-price="buildModel"></span><span class="override" data-for="buildModel"></span></label>
   <label>Buyer-chat model (pi)<span class="combo"><input name="chatModel" data-list="llm" autocomplete="off" spellcheck="false" placeholder="type to search…"><div class="panel" hidden></div></span><span class="price" data-price="chatModel"></span><span class="override" data-for="chatModel"></span></label>
-  <label>Image model (Vercel AI Gateway)<span class="combo"><input name="imageModel" data-list="image" autocomplete="off" spellcheck="false" placeholder="type to search…"><div class="panel" hidden></div></span><span class="price" data-price="imageModel"></span><span class="override" data-for="imageModel"></span></label>
+  <label>Image model (relay, OpenAI Images API)<span class="combo"><input name="imageModel" data-list="image" autocomplete="off" spellcheck="false" placeholder="type to search…"><div class="panel" hidden></div></span><span class="price" data-price="imageModel"></span><span class="override" data-for="imageModel"></span></label>
   <label>Thinking level<select name="thinking"><option>off</option><option>minimal</option><option>low</option><option>medium</option><option>high</option></select><span class="override" data-for="thinking"></span></label>
 </form>
 <div class="row"><button id="save">Save</button><button class="ghost" id="reset" type="button">Reset to .env defaults</button><button class="ghost" id="refresh" type="button">Refresh model list</button><input id="token" type="password" placeholder="admin token (remote only)" style="max-width:240px"><span id="msg"></span></div>
-<p class="hint">The list comes live from the Vercel AI Gateway catalog (<code>GET /v1/models</code>, prices in USD per million tokens) plus any other provider pi has credentials for. Type to filter; any id on the list works, including models newer than pi's built-in table. Remote callers need the <code>ADMIN_TOKEN</code> from .env; loopback needs nothing.</p>
+<p class="hint">The list comes live from the relay catalog (<code>GET /v1/models</code> on <code>RELAY_BASE_URL</code>; the relay publishes no prices, see its pricing page) plus any other provider pi has credentials for. Type to filter; any id on the list works, including models newer than pi's built-in table. Remote callers need the <code>ADMIN_TOKEN</code> from .env; loopback needs nothing.</p>
 </section>
 <section><h2><span>Usage &amp; spend</span><span class="sub" id="spendsub"></span></h2>
 <div class="grid" id="spend"></div>
 <div class="cols">
- <div><h3>Gateway bill for this agent, by model (last 30 days, requests tagged <code id="tagname"></code>)</h3><table><thead><tr><th>Model</th><th class="num">Req</th><th class="num">In</th><th class="num">Out</th><th class="num">Cached</th><th class="num">USD</th></tr></thead><tbody id="gwmodel"></tbody></table></div>
  <div><h3>This agent, by model (local ledger)</h3><table><thead><tr><th>Model</th><th class="num">Calls</th><th class="num">In</th><th class="num">Out</th><th class="num">Cached</th><th class="num">USD</th></tr></thead><tbody id="lmodel"></tbody></table></div>
 </div>
 <div class="cols">
- <div><h3>Gateway bill for this agent, by day</h3><table><thead><tr><th>Day</th><th class="num">Req</th><th class="num">In</th><th class="num">Out</th><th class="num">USD</th></tr></thead><tbody id="gwday"></tbody></table></div>
  <div><h3>This agent, by day</h3><table><thead><tr><th>Day</th><th class="num">Calls</th><th class="num">In</th><th class="num">Out</th><th class="num">USD</th></tr></thead><tbody id="lday"></tbody></table></div>
 </div>
-<h3>Whole account, by model (every key and client on this Vercel team — includes things that are not this agent)</h3><table><thead><tr><th>Model</th><th class="num">Req</th><th class="num">In</th><th class="num">Out</th><th class="num">USD</th></tr></thead><tbody id="teammodel"></tbody></table>
-<p class="hint">"Gateway bill for this agent" is what Vercel charged for requests carrying this agent's <code>ai-reporting-tags</code> header (set on every pi and image call; <code>GATEWAY_REPORTING_TAG</code> to rename). Requests made before tagging was added are only in the account-wide table. Balance / total used are account-wide. "This agent" is the local ledger (<code>DATA_DIR/usage.jsonl</code>): image calls carry the gateway-billed cost; pi language calls carry pi's estimate from list prices. Token counts are exact in both.</p>
+<p class="hint">"Relay bill" is what the relay reports for this key (<code>/v1/dashboard/billing/usage</code> on <code>RELAY_BASE_URL</code>); it is the authoritative number. "This agent" is the local ledger (<code>DATA_DIR/usage.jsonl</code>): token counts are exact, but the relay publishes no prices, so relay models show $0 here (pi's own estimate applies only to models pi knows prices for). Check the relay's pricing page for per-model rates.</p>
 </section>
 <section><h2>Jobs</h2><table><thead><tr><th>Job</th><th>Order</th><th>Status</th><th class="num">Tokens in / out</th><th class="num">Cost</th><th>Updated</th><th>Links</th></tr></thead><tbody id="jobs"></tbody></table></section>
 </main>
@@ -75,22 +72,17 @@ function showPrice(){const f=$('#models');for(const k of ['buildModel','chatMode
  f.querySelector('[data-price='+k+']').textContent=o?o.label:(v?'not in the catalog — will be tried as typed':'');}}
 async function loadOptions(refresh){const q=refresh?'?refresh=1':'';OPTIONS=await fetch('/api/models/options'+q).then(r=>r.json()).catch(()=>({llm:[],image:[]}));
  document.querySelectorAll('.combo .panel:not([hidden])').forEach(p=>renderPanel(p.previousElementSibling));
- $('#catalog').textContent=OPTIONS.gatewayError?OPTIONS.gatewayError:((OPTIONS.llm||[]).length+' text · '+(OPTIONS.image||[]).length+' image models · catalog '+(OPTIONS.catalogFetchedAt?new Date(OPTIONS.catalogFetchedAt).toLocaleTimeString():'—'));showPrice();}
+ $('#catalog').textContent=OPTIONS.catalogError?OPTIONS.catalogError:((OPTIONS.llm||[]).length+' text · '+(OPTIONS.image||[]).length+' image models · catalog '+(OPTIONS.catalogFetchedAt?new Date(OPTIONS.catalogFetchedAt).toLocaleTimeString():'—'));showPrice();}
 async function loadModels(){const m=await fetch('/api/models').then(r=>r.json());const f=$('#models');
  for(const k of ['buildModel','chatModel','imageModel','thinking']){f.elements[k].value=m[k];const o=f.querySelector('[data-for='+k+']');o.textContent=m.overrides[k]?'runtime override (default: '+m.defaults[k]+')':'';}
  showPrice();}
-async function loadUsage(){const u=await fetch('/api/usage').then(r=>r.json()).catch(()=>null);if(!u)return;const g=u.gateway,l=u.local;
- const cells=[];if(g.credits){cells.push(['Gateway balance','<span class="big">'+usd(g.credits.balance)+'</span>']);cells.push(['Gateway total used (all time)',usd(g.credits.totalUsed)]);}
- const gw30=g.byDay.reduce((a,r)=>a+r.totalCost,0);cells.push(['This agent, Gateway bill, last 30 d',usd(gw30)]);cells.push(['Whole account, last 30 d',usd(g.teamTotal)]);
+async function loadUsage(){const u=await fetch('/api/usage').then(r=>r.json()).catch(()=>null);if(!u)return;const g=u.relay,l=u.local;
+ const cells=[];cells.push(['Relay bill, this key, last 30 d','<span class="big">'+usd(g.totalUsed)+'</span>']);cells.push(['Relay remaining quota',g.remaining==null?'unlimited / not reported':usd(g.remaining)]);
  cells.push(['This agent today',usd(l.today.cost)+' · '+l.today.calls+' calls']);cells.push(['This agent, last 7 d',usd(l.last7d.cost)+' · '+l.last7d.calls+' calls']);cells.push(['This agent, all time',usd(l.allTime.cost)+' · '+num(l.allTime.input)+' in / '+num(l.allTime.output)+' out']);
  const k=l.byKind;cells.push(['By kind (all time)',['build','chat','image'].filter(x=>k[x]).map(x=>x+' '+usd(k[x].cost)).join(' · ')||'—']);
  $('#spend').innerHTML=cells.map(([a,b])=>'<div class="kv"><b>'+a+'</b><span>'+b+'</span></div>').join('');
- $('#spendsub').textContent=g.error?('gateway: '+g.error):('gateway data '+g.startDate+' → '+g.endDate+', refreshed '+new Date(g.fetchedAt).toLocaleTimeString());
- $('#tagname').textContent=g.tag||'';
- $('#teammodel').innerHTML=(g.teamByModel||[]).slice(0,12).map(r=>'<tr><td class="mono">'+esc(r.model)+'</td><td class="num">'+num(r.requestCount)+'</td><td class="num">'+num(r.inputTokens)+'</td><td class="num">'+num(r.outputTokens)+'</td><td class="num">'+usd(r.totalCost)+'</td></tr>').join('')||'<tr><td colspan="5" class="hint">—</td></tr>';
- $('#gwmodel').innerHTML=g.byModel.slice(0,12).map(r=>'<tr><td class="mono">'+esc(r.model)+'</td><td class="num">'+num(r.requestCount)+'</td><td class="num">'+num(r.inputTokens)+'</td><td class="num">'+num(r.outputTokens)+'</td><td class="num">'+num(r.cachedInputTokens)+'</td><td class="num">'+usd(r.totalCost)+'</td></tr>').join('')||'<tr><td colspan="6" class="hint">No tagged spend yet — appears after the first build or chat with this version.</td></tr>';
+ $('#spendsub').textContent=g.error?('relay: '+g.error):('relay '+g.baseUrl+' · '+g.startDate+' → '+g.endDate+', refreshed '+new Date(g.fetchedAt).toLocaleTimeString());
  $('#lmodel').innerHTML=l.byModel.slice(0,12).map(r=>'<tr><td class="mono">'+esc(r.model)+'</td><td class="num">'+r.calls+'</td><td class="num">'+num(r.input)+'</td><td class="num">'+num(r.output)+'</td><td class="num">'+num(r.cacheRead)+'</td><td class="num">'+usd(r.cost)+'</td></tr>').join('')||'<tr><td colspan="6" class="hint">No calls recorded yet.</td></tr>';
- $('#gwday').innerHTML=g.byDay.slice().reverse().slice(0,10).map(r=>'<tr><td class="mono">'+esc(r.day)+'</td><td class="num">'+num(r.requestCount)+'</td><td class="num">'+num(r.inputTokens)+'</td><td class="num">'+num(r.outputTokens)+'</td><td class="num">'+usd(r.totalCost)+'</td></tr>').join('')||'<tr><td colspan="5" class="hint">—</td></tr>';
  $('#lday').innerHTML=l.byDay.slice(0,10).map(r=>'<tr><td class="mono">'+esc(r.day)+'</td><td class="num">'+r.calls+'</td><td class="num">'+num(r.input)+'</td><td class="num">'+num(r.output)+'</td><td class="num">'+usd(r.cost)+'</td></tr>').join('')||'<tr><td colspan="5" class="hint">—</td></tr>';}
 async function loadJobs(){const jobs=await fetch('/api/jobs').then(r=>r.json());
  $('#jobs').innerHTML=jobs.length?jobs.map(j=>{const cls=j.status==='failed'?'bad':['delivered','settled','built'].includes(j.status)?'ok':'warn';

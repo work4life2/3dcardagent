@@ -7,21 +7,21 @@ import { listJobs, loadJob } from "../jobs/store.js";
 import { getModels, setModels, MODEL_KEYS, type ModelSettings } from "../runtimeConfig.js";
 import { dashboardHtml } from "./dashboard.js";
 import { imageProviderReady } from "../agent/imagegen.js";
-import { gatewayCatalog, gatewaySpend, imageOptions, languageOptions, type ModelOption } from "../gateway.js";
+import { imageOptions, languageOptions, relayCatalog, relaySpend, type ModelOption } from "../relay.js";
 import { summarizeUsage } from "../usage.js";
 
 const startedAt = Date.now();
-/** Shown only when the Gateway catalog is unreachable and nothing is cached yet. */
-const IMAGE_MODEL_FALLBACK = ["openai/gpt-image-1-mini", "openai/gpt-image-1", "openai/gpt-image-1.5", "google/gemini-3.1-flash-lite-image", "google/gemini-3.1-flash-image", "google/gemini-2.5-flash-image", "bytedance/seedream-4.5", "bfl/flux-pro-1.1"];
+/** Shown only when the relay catalog is unreachable and nothing is cached yet. */
+const IMAGE_MODEL_FALLBACK = ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-1"];
 
 /**
- * Model picker options: the live Gateway catalog (with prices) plus any non-gateway models pi has
- * credentials for (e.g. an anthropic-proxy relay). Gateway entries win on duplicate ids.
+ * Model picker options: the live relay catalog plus any non-relay models pi has credentials for
+ * (e.g. an anthropic-proxy relay or direct provider keys). Relay entries win on duplicate ids.
  */
-async function modelOptions(force: boolean): Promise<{ llm: ModelOption[]; image: ModelOption[]; catalogFetchedAt: string | null; gatewayError?: string }> {
-  const { modelRuntime, syncGatewayModels } = await import("../agent/session.js");
-  const catalog = await gatewayCatalog({ force });
-  await syncGatewayModels({ force }).catch(() => undefined);
+async function modelOptions(force: boolean): Promise<{ llm: ModelOption[]; image: ModelOption[]; catalogFetchedAt: string | null; catalogError?: string }> {
+  const { modelRuntime, syncRelayModels } = await import("../agent/session.js");
+  const catalog = await relayCatalog({ force });
+  await syncRelayModels({ force }).catch(() => undefined);
   const rt = await modelRuntime();
   const llm = languageOptions(catalog);
   const seen = new Set(llm.map((o) => o.id));
@@ -39,7 +39,7 @@ async function modelOptions(force: boolean): Promise<{ llm: ModelOption[]; image
     llm,
     image: image.length ? image : IMAGE_MODEL_FALLBACK.map((id) => ({ id, name: id, label: id, source: "pi" as const })),
     catalogFetchedAt: catalog?.fetchedAt ?? null,
-    gatewayError: catalog ? undefined : "Gateway catalog unavailable (AI_GATEWAY_API_KEY missing or network down)",
+    catalogError: catalog ? undefined : "Relay catalog unavailable (RELAY_API_KEY missing or network down)",
   };
 }
 
@@ -119,10 +119,10 @@ export function startHttpServer(): http.Server {
       return;
     }
     if (p === "/api/usage") {
-      // Local ledger (per job / model / day, pi estimates + gateway-billed images) and the gateway's own bill.
+      // Local ledger (per job / model / day, pi estimates + image calls) and the relay's own bill.
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 30));
-      gatewaySpend(days)
-        .then((gateway) => send(res, 200, JSON.stringify({ local: summarizeUsage(), gateway })))
+      relaySpend(days)
+        .then((relay) => send(res, 200, JSON.stringify({ local: summarizeUsage(), relay })))
         .catch((err) => send(res, 500, JSON.stringify({ error: String(err) })));
       return;
     }

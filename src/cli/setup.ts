@@ -162,7 +162,7 @@ export async function fullSetup(): Promise<void> {
   if (next) process.stdout.write(`\nTermix status: ${JSON.stringify(next, null, 2).slice(0, 1500)}\n`);
   process.stdout.write(`
 Next steps:
-  1. put WALLET_KEY=0x… (dedicated hot wallet, small gas balance) and AI_GATEWAY_API_KEY into .env.local
+  1. put WALLET_KEY=0x… (dedicated hot wallet, small gas balance) and RELAY_API_KEY into .env.local
   2. npm run setup -- agents          # list this wallet's agents → put the id into A2A_AGENT_ID in .env (or setup -- mint <name> "<display name>")
   3. npm run setup -- listing         # publish the service listing (cover image is generated)
   4. npm run make -- "a cyberpunk mechanical cat card, edition No.007"   # build one card locally

@@ -40,7 +40,7 @@ cat <<EOF
 [install] done. Next:
   1. edit $TARGET/.env (LLM key, image API key, AACP_CHAIN)
   2. sudo -u $SERVICE_USER bash -c 'cd $TARGET && npm run setup'          # deps + Blender + doctor
-  3. put WALLET_KEY=0x... (provider hot wallet) and AI_GATEWAY_API_KEY into $TARGET/.env.local
+  3. put WALLET_KEY=0x... (provider hot wallet) and RELAY_API_KEY into $TARGET/.env.local
   4. sudo -u $SERVICE_USER bash -c 'cd $TARGET && npm run setup -- agents'  → put the agentId into .env A2A_AGENT_ID
   5. sudo -u $SERVICE_USER bash -c 'cd $TARGET && npm run setup -- listing'
   6. sudo systemctl start holo-card-agent && journalctl -fu holo-card-agent

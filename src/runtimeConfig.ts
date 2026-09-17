@@ -8,11 +8,11 @@ import { getConfig } from "./config.js";
  * image call reads them fresh.
  */
 export interface ModelSettings {
-  /** pi model for building cards (tool use), e.g. vercel-ai-gateway/google/gemini-3-flash */
+  /** pi model for building cards (tool use), e.g. relay/gemini-3-flash */
   buildModel: string;
   /** pi model for buyer chat replies */
   chatModel: string;
-  /** image model id for IMAGE_PROVIDER=gateway, e.g. openai/gpt-image-1-mini */
+  /** image model id for IMAGE_PROVIDER=relay, e.g. gpt-image-2 */
   imageModel: string;
   /** off | minimal | low | medium | high */
   thinking: string;
@@ -36,12 +36,12 @@ function readOverrides(): Partial<ModelSettings> {
 export function getModels(): ModelSettings & { overrides: Partial<ModelSettings>; defaults: ModelSettings } {
   const cfg = getConfig();
   const o = readOverrides();
-  const defaults: ModelSettings = { buildModel: cfg.llm.model, chatModel: cfg.llm.chatModel, imageModel: cfg.image.gatewayModel, thinking: cfg.llm.thinking };
+  const defaults: ModelSettings = { buildModel: cfg.llm.model, chatModel: cfg.llm.chatModel, imageModel: cfg.image.relayModel, thinking: cfg.llm.thinking };
   return {
     defaults,
     buildModel: o.buildModel || cfg.llm.model,
     chatModel: o.chatModel || cfg.llm.chatModel,
-    imageModel: o.imageModel || cfg.image.gatewayModel,
+    imageModel: o.imageModel || cfg.image.relayModel,
     thinking: o.thinking || cfg.llm.thinking,
     overrides: o,
   };

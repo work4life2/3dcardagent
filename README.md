@@ -44,7 +44,7 @@ On-chain calls go through `A2A_RPC_URL` (default for BSC: `https://bsc-dataseed.
 - Node.js ≥ 22
 - Python 3 + Pillow; `fontconfig` + a CJK font (`fonts-noto-cjk`); `zip`
 - Blender: not required up front. `npm run setup` downloads the official portable 4.5 build (SHA-256 verified) into `data/blender/`; an installed Blender is reused
-- A [Vercel AI Gateway](https://vercel.com/ai-gateway) key (`AI_GATEWAY_API_KEY` in `.env.local`) — chat and image generation both default to it. Direct Anthropic / OpenAI / Gemini keys work too
+- A key for an OpenAI-compatible relay (New API style; default `RELAY_BASE_URL=https://www.cun.ai`, key in `RELAY_API_KEY` in `.env.local`) — chat and image generation both default to it. Direct Anthropic / OpenAI / Gemini keys work too
 - A dedicated hot wallet private key (`WALLET_KEY` in `.env.local`) with a little gas for on-chain accept / deliver / claim
 
 ## Quick start
@@ -54,7 +54,7 @@ git clone git@github.com:work4life2/3dcardagent.git && cd 3dcardagent
 npm install --ignore-scripts
 npm run build
 cp .env.example .env           # chain, listing info; models already default to cost-effective picks
-#   put AI_GATEWAY_API_KEY=... and WALLET_KEY=0x... into .env.local (git-ignored)
+#   put RELAY_API_KEY=... and WALLET_KEY=0x... into .env.local (git-ignored)
 npm run setup                  # pre-install three.js, download Blender, run the doctor
 npm run setup -- agents        # list this wallet's agents → put the id into A2A_AGENT_ID in .env
 #   no agent yet?  npm run setup -- mint <name> "<display name>"   (needs gas)
@@ -79,29 +79,29 @@ Defaults live in `.env` (picked for cost-effectiveness). Switch at any time; new
 
 ```bash
 npm run model -- show                                   # effective build / chat / image / thinking
-npm run model -- list [filter] [--refresh]              # live Vercel AI Gateway catalog with prices (text + image models)
-npm run model -- chat  vercel-ai-gateway/openai/gpt-5-mini
-npm run model -- build vercel-ai-gateway/anthropic/claude-haiku-4.5
-npm run model -- image google/gemini-3.1-flash-lite-image
+npm run model -- list [filter] [--refresh]              # live relay catalog (text + image models)
+npm run model -- chat  relay/gpt-5.4-mini
+npm run model -- build relay/claude-haiku-4-5
+npm run model -- image gpt-image-2.5-flare
 npm run model -- thinking medium
 npm run model -- reset                                  # back to the .env defaults
 ```
 
 Same thing in the dashboard at `http://<host>:8787/` or over HTTP: `GET /api/models`, `POST /api/models {"chatModel":"..."}` (loopback callers need nothing; remote callers send `x-admin-token: $ADMIN_TOKEN`). Overrides are stored in `data/runtime-config.json`.
 
-The model picker is not hard-coded: `GET /api/models/options` pulls the live catalog from the Gateway (`GET https://ai-gateway.vercel.sh/v1/models`, cached 10 min in `data/gateway-models.json`) with USD prices per million tokens / per image, and merges in any non-gateway providers pi has credentials for. Gateway text models that pi's built-in table does not know yet are registered automatically in `data/pi-agent/models.json` (with the Gateway's prices), so every id on the list can be selected. `?refresh=1` (or the dashboard's "Refresh model list" button) forces a re-fetch. The dashboard picker is a searchable list: focus the field to see the whole catalog grouped by vendor, type any words to filter on id or label, click or press Enter to choose.
+The model picker is not hard-coded: `GET /api/models/options` pulls the live catalog from the relay (`GET $RELAY_BASE_URL/v1/models`, cached 10 min in `data/relay-models.json`) and merges in any non-relay providers pi has credentials for. The relay is not one of pi's built-in providers, so every text model on the catalog is registered in `data/pi-agent/models.json` under the `relay` provider: Claude models through the relay's Anthropic Messages endpoint (`/v1/messages`), everything else through OpenAI chat completions (`/v1/chat/completions`). Image models go through the relay's OpenAI Images API (`/v1/images/generations|edits`); only `gpt-image-*` models are routed there by the relay. The relay publishes no prices, so the picker shows none — check its pricing page. `?refresh=1` (or the dashboard's "Refresh model list" button) forces a re-fetch. The dashboard picker is a searchable list: focus the field to see the whole catalog grouped by vendor, type any words to filter on id or label, click or press Enter to choose.
 
 ### Token & cost tracking
 
 ```bash
-npm run usage                    # per job / model / day (local ledger) + the Gateway's bill and credit balance
+npm run usage                    # per job / model / day (local ledger) + the relay's bill for this key
 npm run jobs                     # each job with its token counts and cost
 ```
 
 Two sources, shown side by side in the dashboard ("Usage & spend") and in `GET /api/usage`:
 
-- **Local ledger** `data/usage.jsonl`: one line per model call, attributed to the job / conversation. pi language calls record exact token counts (input, output, cache read/write, reasoning) and pi's cost estimate from list prices; Gateway image calls record the cost the Gateway itself billed (`providerMetadata.gateway.cost`). This is the only place that answers "what did this card cost to make".
-- **Gateway bill** (authoritative): `getSpendReport()` grouped by model and by day for the last 30 days (`?days=N`), **filtered to this agent**. Every request this program sends carries `ai-reporting-tags: holo-card-agent` (pi text calls via the provider overlay in `data/pi-agent/models.json`, image calls via the AI SDK client), so the report excludes other keys and clients on the same Vercel account. The account-wide breakdown, balance and total used (`getCredits()`) are shown separately for comparison. Rename the tag with `GATEWAY_REPORTING_TAG` if several agents share one account. Requests sent before this version are untagged and only appear in the account-wide table.
+- **Local ledger** `data/usage.jsonl`: one line per model call, attributed to the job / conversation. pi language calls record exact token counts (input, output, cache read/write, reasoning); relay image calls record the token usage the relay returns. The relay publishes no prices, so relay models carry cost 0 here — the ledger answers "how many tokens did this card take", not "what did it cost".
+- **Relay bill** (authoritative): `GET $RELAY_BASE_URL/v1/dashboard/billing/usage` for the last 30 days (`?days=N`) and the key's remaining quota from `/v1/dashboard/billing/subscription`. This is per key: give the agent its own relay key if the account is shared.
 
 ## Deployment
 
@@ -112,7 +112,7 @@ Two sources, shown side by side in the dashboard ("Usage & spend") and in `GET /
 # registers the systemd service and a 1-minute timer that redeploys whenever origin/main moves
 curl -fsSL https://raw.githubusercontent.com/work4life2/3dcardagent/main/deploy/server-bootstrap.sh \
   | DASH_USER=admin DASH_PASS='<password>' bash
-# then: copy .env.local (WALLET_KEY, AI_GATEWAY_API_KEY, A2A_AGENT_ID, PUBLIC_BASE_URL, …) to /opt/holo-card-agent/
+# then: copy .env.local (WALLET_KEY, RELAY_API_KEY, A2A_AGENT_ID, PUBLIC_BASE_URL, …) to /opt/holo-card-agent/
 sudo -u holocard bash -c 'cd /opt/holo-card-agent && npm run setup'     # three.js, Blender, doctor
 systemctl start holo-card-agent
 ```
@@ -149,8 +149,8 @@ The container uses the host network; the gallery is on `:8787`. Both `.env` and 
 | `/cards/` | gallery of delivered cards; `/cards/<jobId>/` is the interactive Three.js viewer |
 | `/api/jobs`, `/api/jobs/<id>` | job status |
 | `/api/models` | read / switch models |
-| `/api/models/options` | live model catalog with prices (`?refresh=1` re-fetches) |
-| `/api/usage` | tokens & cost: local per-job ledger + Gateway spend report and credit balance (`?days=N`) |
+| `/api/models/options` | live model catalog (`?refresh=1` re-fetches) |
+| `/api/usage` | tokens & cost: local per-job ledger + the relay's bill for this key (`?days=N`) |
 | `/jobs/<id>/renders/hero.png` | render |
 
 With `PUBLIC_BASE_URL` set (reverse-proxied to 8787), delivery notes and chat replies include the online preview link.
@@ -159,9 +159,9 @@ With `PUBLIC_BASE_URL` set (reverse-proxied to 8787), delivery notes and chat re
 
 See `.env.example`. Highlights:
 
-- `AI_GATEWAY_API_KEY` (in `.env.local`): Vercel AI Gateway for chat and images. `examples/ai-gateway/index.ts` is the minimal AI SDK example: `node --env-file=.env.local --experimental-strip-types examples/ai-gateway/index.ts`.
-- `PI_MODEL` / `PI_CHAT_MODEL`: `provider/model[:thinking]`. Defaults `vercel-ai-gateway/google/gemini-3-flash` (building) and `vercel-ai-gateway/google/gemini-3.1-flash-lite` (chat); `.env.example` has a price table. Direct providers (`anthropic/claude-sonnet-4-5`, `openai/gpt-5-mini`, …) and an Anthropic-compatible relay (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` → provider `anthropic-proxy`) are supported.
-- `IMAGE_PROVIDER=gateway|openai|gemini|mock`, default `gateway` with `GATEWAY_IMAGE_MODEL=openai/gpt-image-1-mini`; `mock` is for key-less dry runs only.
+- `RELAY_BASE_URL` (default `https://www.cun.ai`) + `RELAY_API_KEY` (in `.env.local`): OpenAI-compatible relay for chat and images. `examples/relay/index.ts` is the minimal smoke test: `node --env-file=.env.local examples/relay/index.ts`.
+- `PI_MODEL` / `PI_CHAT_MODEL`: `provider/model[:thinking]`. Defaults `relay/gemini-3-flash` (building) and `relay/gemini-2.5-flash-lite` (chat). Direct providers (`anthropic/claude-sonnet-4-5`, `openai/gpt-5-mini`, …) and an Anthropic-compatible relay (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` → provider `anthropic-proxy`) are supported.
+- `IMAGE_PROVIDER=relay|openai|gemini|mock`, default `relay` with `RELAY_IMAGE_MODEL=gpt-image-2` (native transparent background); `mock` is for key-less dry runs only.
 - `SERVICE_*`: listing title / price / currency / delivery days / category.
 - `JOB_CONCURRENCY`, `JOB_TIMEOUT_MINUTES`, `SWEEP_INTERVAL_SECONDS`.
 - `NOTIFY_WEBHOOK_URL`: delivery, failure and claim events are POSTed here (Slack, Feishu, Bark, …).
@@ -175,7 +175,7 @@ src/
   termix/client.ts    wrapper over the termix-agent-skills scripts (login / wait / api / tx / upload / reply)
   agent/session.ts    pi SDK sessions: skill injection, AGENTS.md rules, custom tools, model resolution
   agent/tools.ts      image generate / edit / lineart / chroma key / inspect tools (defineTool)
-  agent/imagegen.ts   gateway / OpenAI Images / Gemini / mock back ends
+  agent/imagegen.ts   relay (OpenAI Images API) / OpenAI Images / Gemini / mock back ends
   jobs/orderWorker.ts order lifecycle: accept → build → package → upload → submit → claim
   jobs/cardBuilder.ts runs the agent, verifies outputs, packages the deliverable
   jobs/chat.ts        buyer chat replies
@@ -183,14 +183,14 @@ src/
   server/http.ts      health + gallery + model API
 skills/               both skills, vendored unchanged
 tools/imgtool.py      Pillow helpers (inspect / lineart / chroma-key / mock)
-examples/ai-gateway/  minimal AI SDK + gateway example
+examples/relay/       minimal relay smoke test (chat + image)
 deploy/               Dockerfile, compose, systemd unit, install.sh
 data/                 runtime data (jobs, conversations, credential caches, Blender)
 ```
 
 ## Notes
 
-- Verified locally: gateway text and image generation (genuine alpha), the Blender pipeline, and a full `make` run driven by the model. Not yet exercised live: minting, publishing the listing and delivering a funded Termix order.
+- Verified locally: relay text (tool use) and image generation (genuine alpha via gpt-image-2), the Blender pipeline, and a full `make` run driven by the model. Not yet exercised live: minting, publishing the listing and delivering a funded Termix order.
 - Accepting and delivering are on-chain and cost gas; keep only a small balance in the hot wallet.
 - There is no automatic settlement on Termix; the service claims escrow itself once the challenge window has passed.
 - Skill update check: `cd data/termix && node ../../skills/termix-agent-skills/scripts/aacp-update.mjs check`.

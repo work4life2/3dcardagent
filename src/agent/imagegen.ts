@@ -5,7 +5,6 @@ import { logger } from "../log.js";
 import { run } from "../util/exec.js";
 import { getModels } from "../runtimeConfig.js";
 import { recordUsage } from "../usage.js";
-import { gatewayClient } from "../gateway.js";
 
 const log = logger("imagegen");
 
@@ -37,11 +36,17 @@ function mimeOf(file: string): string {
   return ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
 }
 
-async function openaiGenerate(o: GenerateOptions): Promise<GenerateResult> {
-  const { image } = getConfig();
-  if (!image.openaiKey) throw new Error("OPENAI_IMAGE_API_KEY (or OPENAI_API_KEY) is not set");
+interface ImagesApiTarget {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+/** OpenAI Images API (generations / edits) against any compatible endpoint: OpenAI itself or the relay. */
+async function imagesApiGenerate(o: GenerateOptions, t: ImagesApiTarget): Promise<{ buf: Buffer; usage?: { input_tokens?: number; output_tokens?: number } }> {
   const size = o.size ?? "1024x1536";
-  const headers: Record<string, string> = { authorization: `Bearer ${image.openaiKey}` };
+  const headers: Record<string, string> = { authorization: `Bearer ${t.apiKey}` };
+  const image = { openaiBaseUrl: t.baseUrl, openaiModel: t.model };
   let res: Response;
   if (o.images && o.images.length > 0) {
     const form = new FormData();
@@ -76,15 +81,26 @@ async function openaiGenerate(o: GenerateOptions): Promise<GenerateResult> {
   }
   const text = await res.text();
   if (!res.ok) throw new Error(`OpenAI images API ${res.status}: ${text.slice(0, 500)}`);
-  const json = JSON.parse(text) as { data?: Array<{ b64_json?: string; url?: string }> };
+  const json = JSON.parse(text) as { data?: Array<{ b64_json?: string; url?: string }>; usage?: { input_tokens?: number; output_tokens?: number } };
   const item = json.data?.[0];
   if (!item) throw new Error(`OpenAI images API returned no image: ${text.slice(0, 300)}`);
   let buf: Buffer;
   if (item.b64_json) buf = Buffer.from(item.b64_json, "base64");
-  else if (item.url) buf = Buffer.from(await (await fetch(item.url)).arrayBuffer());
-  else throw new Error("OpenAI images API returned neither b64_json nor url");
+  else if (item.url) {
+    // Edits on the relay come back as a URL (asset host); fetch it right away, the link is short-lived.
+    const dl = await fetch(item.url, { signal: AbortSignal.timeout(120_000) });
+    if (!dl.ok) throw new Error(`could not download generated image (${dl.status}) from ${item.url}`);
+    buf = Buffer.from(await dl.arrayBuffer());
+  } else throw new Error("OpenAI images API returned neither b64_json nor url");
   fs.mkdirSync(path.dirname(o.outPath), { recursive: true });
   fs.writeFileSync(o.outPath, buf);
+  return { buf, usage: json.usage };
+}
+
+async function openaiGenerate(o: GenerateOptions): Promise<GenerateResult> {
+  const { image } = getConfig();
+  if (!image.openaiKey) throw new Error("OPENAI_IMAGE_API_KEY (or OPENAI_API_KEY) is not set");
+  const { buf } = await imagesApiGenerate(o, { baseUrl: image.openaiBaseUrl, apiKey: image.openaiKey, model: image.openaiModel });
   return {
     path: o.outPath,
     provider: "openai",
@@ -133,53 +149,35 @@ async function geminiGenerate(o: GenerateOptions): Promise<GenerateResult> {
   };
 }
 
-/** Vercel AI Gateway via the AI SDK: one key, any image model (default openai/gpt-image-1-mini, supports alpha). */
-async function gatewayGenerate(o: GenerateOptions): Promise<GenerateResult> {
-  const { image } = getConfig();
-  if (!image.gatewayKey) throw new Error("AI_GATEWAY_API_KEY is not set (put it in .env.local)");
-  const { generateImage } = await import("ai");
-  const gateway = await gatewayClient(); // carries the ai-reporting-tags header for spend attribution
-  const gatewayModel = getModels().imageModel;
-  const size = (o.size ?? "1024x1536") as `${number}x${number}`;
-  const isOpenAI = gatewayModel.startsWith("openai/");
-  const providerOptions: Record<string, Record<string, string>> = {};
-  if (isOpenAI) providerOptions.openai = { output_format: "png", ...(o.transparent ? { background: "transparent" } : {}) };
-  const prompt = o.images?.length
-    ? { text: o.prompt, images: o.images.map((p) => fs.readFileSync(p)), ...(o.maskPath ? { mask: fs.readFileSync(o.maskPath) } : {}) }
-    : o.prompt;
-  const result = await generateImage({
-    model: gateway.imageModel(gatewayModel),
-    prompt,
-    size,
-    providerOptions,
-    abortSignal: AbortSignal.timeout(300_000),
-  });
-  const buf = Buffer.from(result.image.uint8Array);
-  fs.mkdirSync(path.dirname(o.outPath), { recursive: true });
-  fs.writeFileSync(o.outPath, buf);
-  // The gateway reports what it billed for this call in providerMetadata.gateway.
-  const gw = (result.providerMetadata as { gateway?: { cost?: string; generationId?: string } } | undefined)?.gateway;
-  const cost = Number(gw?.cost);
+/**
+ * The relay's OpenAI Images API: one key, any gpt-image-* model (default gpt-image-2, native
+ * transparent background for the subject layer). The relay reports token usage but no price,
+ * so the ledger records the call with cost 0 (the relay's own billing page is authoritative).
+ */
+async function relayGenerate(o: GenerateOptions): Promise<GenerateResult> {
+  const { relay } = getConfig();
+  if (!relay.apiKey) throw new Error("RELAY_API_KEY is not set (put it in .env.local)");
+  const model = getModels().imageModel;
+  const { buf, usage } = await imagesApiGenerate(o, { baseUrl: `${relay.baseUrl}/v1`, apiKey: relay.apiKey, model });
   recordUsage({
     kind: "image",
     jobId: o.jobId,
-    model: gatewayModel,
-    provider: "vercel-ai-gateway",
-    input: result.usage?.inputTokens ?? 0,
-    output: result.usage?.outputTokens ?? 0,
+    model,
+    provider: "relay",
+    input: usage?.input_tokens ?? 0,
+    output: usage?.output_tokens ?? 0,
     cacheRead: 0,
     cacheWrite: 0,
-    cost: Number.isFinite(cost) ? cost : 0,
-    source: Number.isFinite(cost) && gw?.cost !== undefined ? "gateway" : "none",
-    generationId: gw?.generationId,
+    cost: 0,
+    source: "none",
   });
   return {
     path: o.outPath,
-    provider: "gateway",
-    model: gatewayModel,
+    provider: "relay",
+    model,
     bytes: buf.length,
     transparentRequested: Boolean(o.transparent),
-    transparentSupported: isOpenAI,
+    transparentSupported: /^gpt-image/i.test(model),
   };
 }
 
@@ -202,7 +200,7 @@ export async function generateImage(o: GenerateOptions): Promise<GenerateResult>
     image.provider === "mock" ? await mockGenerate(o)
     : image.provider === "gemini" ? await geminiGenerate(o)
     : image.provider === "openai" ? await openaiGenerate(o)
-    : await gatewayGenerate(o);
+    : await relayGenerate(o);
   if (image.provider === "openai" || image.provider === "gemini") {
     // Direct providers do not tell us the price; count the call so per-job call counts stay complete.
     recordUsage({ kind: "image", jobId: o.jobId, model: `${image.provider}/${result.model}`, provider: image.provider, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, source: "none" });
@@ -214,8 +212,10 @@ export async function generateImage(o: GenerateOptions): Promise<GenerateResult>
 export function imageProviderReady(): { ok: boolean; reason: string } {
   const { image } = getConfig();
   if (image.provider === "mock") return { ok: true, reason: "mock (Pillow placeholders — testing only, not for real orders)" };
-  if (image.provider === "gateway")
-    return image.gatewayKey ? { ok: true, reason: `vercel-ai-gateway ${getModels().imageModel}` } : { ok: false, reason: "AI_GATEWAY_API_KEY missing (.env.local)" };
+  if (image.provider === "relay") {
+    const { relay } = getConfig();
+    return relay.apiKey ? { ok: true, reason: `relay ${getModels().imageModel} @ ${relay.baseUrl}` } : { ok: false, reason: "RELAY_API_KEY missing (.env.local)" };
+  }
   if (image.provider === "gemini") return image.geminiKey ? { ok: true, reason: `gemini/${image.geminiModel}` } : { ok: false, reason: "GEMINI_API_KEY missing" };
   return image.openaiKey
     ? { ok: true, reason: `openai/${image.openaiModel} @ ${image.openaiBaseUrl}` }
