@@ -65,6 +65,7 @@ export function createHoloTools(baseDir: string) {
         outPath: out,
         size: (p.size as ImageSize | undefined) ?? "1024x1536",
         transparent: p.transparent,
+        jobId: path.basename(baseDir),
         images: refs.length ? refs : undefined,
       });
       const info = await pyJson(["inspect", out]);
@@ -97,6 +98,7 @@ export function createHoloTools(baseDir: string) {
         outPath: out,
         size: (p.size as ImageSize | undefined) ?? "1024x1536",
         transparent: p.transparent,
+        jobId: path.basename(baseDir),
         images: [resolveIn(p.image_path)],
         maskPath: p.mask_path ? resolveIn(p.mask_path) : undefined,
       });

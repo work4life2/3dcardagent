@@ -18,10 +18,13 @@
     "doctor": "node dist/index.js doctor",
     "make": "node dist/index.js make",
     "model": "node dist/index.js model",
+    "usage": "node dist/index.js usage",
+    "jobs": "node dist/index.js jobs",
     "pi": "node dist/index.js pi",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^4.0.82",
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "ai": "^7.0.102",
     "esbuild": "^0.28.2",

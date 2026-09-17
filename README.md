@@ -72,6 +72,7 @@ Defaults live in `.env` (picked for cost-effectiveness). Switch at any time; new
 
 ```bash
 npm run model -- show                                   # effective build / chat / image / thinking
+npm run model -- list [filter] [--refresh]              # live Vercel AI Gateway catalog with prices (text + image models)
 npm run model -- chat  vercel-ai-gateway/openai/gpt-5-mini
 npm run model -- build vercel-ai-gateway/anthropic/claude-haiku-4.5
 npm run model -- image google/gemini-3.1-flash-lite-image
@@ -79,7 +80,21 @@ npm run model -- thinking medium
 npm run model -- reset                                  # back to the .env defaults
 ```
 
-Same thing in the dashboard at `http://<host>:8787/` (models form with a list of every model your keys unlock) or over HTTP: `GET /api/models`, `POST /api/models {"chatModel":"..."}` (loopback callers need nothing; remote callers send `x-admin-token: $ADMIN_TOKEN`). Overrides are stored in `data/runtime-config.json`.
+Same thing in the dashboard at `http://<host>:8787/` or over HTTP: `GET /api/models`, `POST /api/models {"chatModel":"..."}` (loopback callers need nothing; remote callers send `x-admin-token: $ADMIN_TOKEN`). Overrides are stored in `data/runtime-config.json`.
+
+The model picker is not hard-coded: `GET /api/models/options` pulls the live catalog from the Gateway (`GET https://ai-gateway.vercel.sh/v1/models`, cached 10 min in `data/gateway-models.json`) with USD prices per million tokens / per image, and merges in any non-gateway providers pi has credentials for. Gateway text models that pi's built-in table does not know yet are registered automatically in `data/pi-agent/models.json` (with the Gateway's prices), so every id on the list can be selected. `?refresh=1` (or the dashboard's "Refresh model list" button) forces a re-fetch. The dashboard picker is a searchable list: focus the field to see the whole catalog grouped by vendor, type any words to filter on id or label, click or press Enter to choose.
+
+### Token & cost tracking
+
+```bash
+npm run usage                    # per job / model / day (local ledger) + the Gateway's bill and credit balance
+npm run jobs                     # each job with its token counts and cost
+```
+
+Two sources, shown side by side in the dashboard ("Usage & spend") and in `GET /api/usage`:
+
+- **Local ledger** `data/usage.jsonl`: one line per model call, attributed to the job / conversation. pi language calls record exact token counts (input, output, cache read/write, reasoning) and pi's cost estimate from list prices; Gateway image calls record the cost the Gateway itself billed (`providerMetadata.gateway.cost`). This is the only place that answers "what did this card cost to make".
+- **Gateway bill** (authoritative): `getSpendReport()` grouped by model and by day for the last 30 days (`?days=N`), **filtered to this agent**. Every request this program sends carries `ai-reporting-tags: holo-card-agent` (pi text calls via the provider overlay in `data/pi-agent/models.json`, image calls via the AI SDK client), so the report excludes other keys and clients on the same Vercel account. The account-wide breakdown, balance and total used (`getCredits()`) are shown separately for comparison. Rename the tag with `GATEWAY_REPORTING_TAG` if several agents share one account. Requests sent before this version are untagged and only appear in the account-wide table.
 
 ## Deployment
 
@@ -106,11 +121,13 @@ The container uses the host network; the gallery is on `:8787`. Both `.env` and 
 
 | Path | Purpose |
 |---|---|
-| `/` | operator dashboard: status, runtime model switching, jobs with viewer / render / zip links |
+| `/` | operator dashboard: status, runtime model switching (live priced catalog), usage & spend, jobs with cost and viewer / render / zip links |
 | `/health` | health check (chain, agent) |
 | `/cards/` | gallery of delivered cards; `/cards/<jobId>/` is the interactive Three.js viewer |
 | `/api/jobs`, `/api/jobs/<id>` | job status |
 | `/api/models` | read / switch models |
+| `/api/models/options` | live model catalog with prices (`?refresh=1` re-fetches) |
+| `/api/usage` | tokens & cost: local per-job ledger + Gateway spend report and credit balance (`?days=N`) |
 | `/jobs/<id>/renders/hero.png` | render |
 
 With `PUBLIC_BASE_URL` set (reverse-proxied to 8787), delivery notes and chat replies include the online preview link.

@@ -7,9 +7,41 @@ import { listJobs, loadJob } from "../jobs/store.js";
 import { getModels, setModels, MODEL_KEYS, type ModelSettings } from "../runtimeConfig.js";
 import { dashboardHtml } from "./dashboard.js";
 import { imageProviderReady } from "../agent/imagegen.js";
+import { gatewayCatalog, gatewaySpend, imageOptions, languageOptions, type ModelOption } from "../gateway.js";
+import { summarizeUsage } from "../usage.js";
 
 const startedAt = Date.now();
-const IMAGE_MODEL_SUGGESTIONS = ["openai/gpt-image-1-mini", "openai/gpt-image-1", "openai/gpt-image-1.5", "google/gemini-3.1-flash-lite-image", "google/gemini-3.1-flash-image", "google/gemini-2.5-flash-image", "bytedance/seedream-4.5", "bfl/flux-pro-1.1"];
+/** Shown only when the Gateway catalog is unreachable and nothing is cached yet. */
+const IMAGE_MODEL_FALLBACK = ["openai/gpt-image-1-mini", "openai/gpt-image-1", "openai/gpt-image-1.5", "google/gemini-3.1-flash-lite-image", "google/gemini-3.1-flash-image", "google/gemini-2.5-flash-image", "bytedance/seedream-4.5", "bfl/flux-pro-1.1"];
+
+/**
+ * Model picker options: the live Gateway catalog (with prices) plus any non-gateway models pi has
+ * credentials for (e.g. an anthropic-proxy relay). Gateway entries win on duplicate ids.
+ */
+async function modelOptions(force: boolean): Promise<{ llm: ModelOption[]; image: ModelOption[]; catalogFetchedAt: string | null; gatewayError?: string }> {
+  const { modelRuntime, syncGatewayModels } = await import("../agent/session.js");
+  const catalog = await gatewayCatalog({ force });
+  await syncGatewayModels({ force }).catch(() => undefined);
+  const rt = await modelRuntime();
+  const llm = languageOptions(catalog);
+  const seen = new Set(llm.map((o) => o.id));
+  for (const m of await rt.getAvailable()) {
+    const id = `${m.provider}/${m.id}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const c = m.cost as { input?: number; output?: number } | undefined;
+    const price = c && (c.input || c.output) ? ` · $${c.input ?? "?"} in / $${c.output ?? "?"} out per M` : "";
+    llm.push({ id, name: m.name ?? m.id, label: `${m.name ?? m.id}${price} · ${Math.round((m.contextWindow ?? 0) / 1000)}k ctx`, inputPerM: c?.input, outputPerM: c?.output, contextWindow: m.contextWindow, source: "pi" });
+  }
+  llm.sort((a, b) => a.id.localeCompare(b.id));
+  const image = imageOptions(catalog);
+  return {
+    llm,
+    image: image.length ? image : IMAGE_MODEL_FALLBACK.map((id) => ({ id, name: id, label: id, source: "pi" as const })),
+    catalogFetchedAt: catalog?.fetchedAt ?? null,
+    gatewayError: catalog ? undefined : "Gateway catalog unavailable (AI_GATEWAY_API_KEY missing or network down)",
+  };
+}
 
 const log = logger("http");
 
@@ -81,12 +113,16 @@ export function startHttpServer(): http.Server {
       }));
     }
     if (p === "/api/models/options") {
-      import("../agent/session.js")
-        .then(async ({ modelRuntime }) => {
-          const rt = await modelRuntime();
-          const llm = (await rt.getAvailable()).map((m) => `${m.provider}/${m.id}`).sort();
-          send(res, 200, JSON.stringify({ llm, image: IMAGE_MODEL_SUGGESTIONS }));
-        })
+      modelOptions(url.searchParams.has("refresh"))
+        .then((o) => send(res, 200, JSON.stringify(o)))
+        .catch((err) => send(res, 500, JSON.stringify({ error: String(err) })));
+      return;
+    }
+    if (p === "/api/usage") {
+      // Local ledger (per job / model / day, pi estimates + gateway-billed images) and the gateway's own bill.
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 30));
+      gatewaySpend(days)
+        .then((gateway) => send(res, 200, JSON.stringify({ local: summarizeUsage(), gateway })))
         .catch((err) => send(res, 500, JSON.stringify({ error: String(err) })));
       return;
     }
@@ -113,7 +149,11 @@ export function startHttpServer(): http.Server {
       }
     }
     if (p === "/api/jobs") {
-      return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, previewUrl, error }) => ({ id, orderId, status, createdAt, updatedAt, previewUrl, error }))));
+      const usage = new Map(summarizeUsage().byJob.map((j) => [j.jobId, j]));
+      return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, previewUrl, error }) => {
+        const u = usage.get(id);
+        return { id, orderId, status, createdAt, updatedAt, previewUrl, error, usage: u ? { calls: u.calls, input: u.input, output: u.output, cacheRead: u.cacheRead, cost: u.cost } : null };
+      })));
     }
     const m = p.match(/^\/api\/jobs\/([^/]+)$/);
     if (m) {

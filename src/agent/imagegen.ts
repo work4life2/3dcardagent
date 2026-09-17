@@ -4,6 +4,8 @@ import { getConfig } from "../config.js";
 import { logger } from "../log.js";
 import { run } from "../util/exec.js";
 import { getModels } from "../runtimeConfig.js";
+import { recordUsage } from "../usage.js";
+import { gatewayClient } from "../gateway.js";
 
 const log = logger("imagegen");
 
@@ -17,6 +19,8 @@ export interface GenerateOptions {
   /** Reference / source images. With OpenAI these go to /images/edits; Gemini takes them inline. */
   images?: string[];
   maskPath?: string;
+  /** Job to attribute the call to in the usage ledger. */
+  jobId?: string;
 }
 
 export interface GenerateResult {
@@ -133,7 +137,8 @@ async function geminiGenerate(o: GenerateOptions): Promise<GenerateResult> {
 async function gatewayGenerate(o: GenerateOptions): Promise<GenerateResult> {
   const { image } = getConfig();
   if (!image.gatewayKey) throw new Error("AI_GATEWAY_API_KEY is not set (put it in .env.local)");
-  const { generateImage, gateway } = await import("ai");
+  const { generateImage } = await import("ai");
+  const gateway = await gatewayClient(); // carries the ai-reporting-tags header for spend attribution
   const gatewayModel = getModels().imageModel;
   const size = (o.size ?? "1024x1536") as `${number}x${number}`;
   const isOpenAI = gatewayModel.startsWith("openai/");
@@ -152,6 +157,22 @@ async function gatewayGenerate(o: GenerateOptions): Promise<GenerateResult> {
   const buf = Buffer.from(result.image.uint8Array);
   fs.mkdirSync(path.dirname(o.outPath), { recursive: true });
   fs.writeFileSync(o.outPath, buf);
+  // The gateway reports what it billed for this call in providerMetadata.gateway.
+  const gw = (result.providerMetadata as { gateway?: { cost?: string; generationId?: string } } | undefined)?.gateway;
+  const cost = Number(gw?.cost);
+  recordUsage({
+    kind: "image",
+    jobId: o.jobId,
+    model: gatewayModel,
+    provider: "vercel-ai-gateway",
+    input: result.usage?.inputTokens ?? 0,
+    output: result.usage?.outputTokens ?? 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: Number.isFinite(cost) ? cost : 0,
+    source: Number.isFinite(cost) && gw?.cost !== undefined ? "gateway" : "none",
+    generationId: gw?.generationId,
+  });
   return {
     path: o.outPath,
     provider: "gateway",
@@ -182,6 +203,10 @@ export async function generateImage(o: GenerateOptions): Promise<GenerateResult>
     : image.provider === "gemini" ? await geminiGenerate(o)
     : image.provider === "openai" ? await openaiGenerate(o)
     : await gatewayGenerate(o);
+  if (image.provider === "openai" || image.provider === "gemini") {
+    // Direct providers do not tell us the price; count the call so per-job call counts stay complete.
+    recordUsage({ kind: "image", jobId: o.jobId, model: `${image.provider}/${result.model}`, provider: image.provider, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, source: "none" });
+  }
   log.info(`generated ${path.basename(o.outPath)} in ${Math.round((Date.now() - started) / 1000)}s (${result.bytes} bytes)`);
   return result;
 }

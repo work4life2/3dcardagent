@@ -60,7 +60,8 @@ export async function handleChatMessage(ev: WatchEvent): Promise<void> {
       }
     }
 
-    const session = await createChatSession(chatSystemPrompt());
+    const jobId = orderId ? findJobByOrder(orderId)?.id : undefined;
+    const session = await createChatSession(chatSystemPrompt(), { kind: "chat", conversationId, jobId });
     let reply: string;
     try {
       reply = await promptForText(session, prompt, images.length ? images : undefined);

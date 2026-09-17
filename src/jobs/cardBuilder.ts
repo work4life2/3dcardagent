@@ -122,6 +122,7 @@ export async function buildCard(job: Job, extraInstructions?: string): Promise<B
     const session = await createCardSession({
       cwd: job.dir,
       guidelines,
+      usage: { kind: "build", jobId: job.id },
       onText: (d) => transcript.write(d),
       onTool: (name, phase, detail) => {
         transcript.write(`\n[tool ${phase}] ${name} ${phase === "start" ? JSON.stringify(detail).slice(0, 400) : JSON.stringify(detail)}\n`);
