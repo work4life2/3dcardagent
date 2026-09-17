@@ -196,11 +196,18 @@ export async function generateImage(o: GenerateOptions): Promise<GenerateResult>
   const { image } = getConfig();
   log.info(`generate via ${image.provider}`, { out: path.basename(o.outPath), transparent: !!o.transparent, refs: o.images?.length ?? 0 });
   const started = Date.now();
-  const result =
-    image.provider === "mock" ? await mockGenerate(o)
-    : image.provider === "gemini" ? await geminiGenerate(o)
-    : image.provider === "openai" ? await openaiGenerate(o)
-    : await relayGenerate(o);
+  let result: GenerateResult;
+  try {
+    result =
+      image.provider === "mock" ? await mockGenerate(o)
+      : image.provider === "gemini" ? await geminiGenerate(o)
+      : image.provider === "openai" ? await openaiGenerate(o)
+      : await relayGenerate(o);
+  } catch (err) {
+    // pi hands the error text to the model (which usually retries); log it so operators see it too.
+    log.warn(`generate ${path.basename(o.outPath)} failed after ${Math.round((Date.now() - started) / 1000)}s: ${String(err instanceof Error ? err.message : err).slice(0, 400)}`);
+    throw err;
+  }
   if (image.provider === "openai" || image.provider === "gemini") {
     // Direct providers do not tell us the price; count the call so per-job call counts stay complete.
     recordUsage({ kind: "image", jobId: o.jobId, model: `${image.provider}/${result.model}`, provider: image.provider, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, source: "none" });
