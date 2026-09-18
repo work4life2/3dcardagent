@@ -235,8 +235,8 @@ async function deliver(job: Job, pack: { zip: string; preview?: string; note?: s
 function deliveryNoteText(job: Job, deliveryMd?: string): string {
   const zh = isChinese(job.brief);
   const head = zh
-    ? `解压 zip 后双击 index.html 即可查看（无需安装）。${job.previewUrl ? `在线预览：${job.previewUrl}` : ""}`
-    : `Unzip and double-click index.html to view the card (nothing to install).${job.previewUrl ? ` Online preview: ${job.previewUrl}` : ""}`;
+    ? "解压 zip 后双击 index.html 即可查看（无需安装）。"
+    : "Unzip and double-click index.html to view the card (nothing to install).";
   let body = "";
   try {
     if (deliveryMd) body = fs.readFileSync(deliveryMd, "utf8").trim();
@@ -250,17 +250,12 @@ function deliveryNoteText(job: Job, deliveryMd?: string): string {
 /** Buyer-facing delivery notice in the language of the brief (English by default). */
 function deliveryNotice(job: Job): string {
   if (isChinese(job.brief)) {
-    return `✅ 您的闪卡已交付！${job.previewUrl ? `在线预览：${job.previewUrl}\n` : ""}交付物：一个 zip（解压后双击 index.html 即可交互查看，内含渲染图与源图层）和一张预览渲染图。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。`;
+    return "✅ 您的闪卡已交付！交付物：一个 zip（解压后双击 index.html 即可交互查看，内含渲染图与源图层）和一张预览渲染图。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。";
   }
-  return `✅ Your holographic card has been delivered!${job.previewUrl ? ` Online preview: ${job.previewUrl}\n` : " "}Two files: a zip (unzip, double-click index.html for the interactive viewer; renders and source layers included) and a preview render. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.`;
+  return "✅ Your holographic card has been delivered! Two files: a zip (unzip, double-click index.html for the interactive viewer; renders and source layers included) and a preview render. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.";
 }
 
 export { isChinese };
-
-function previewUrlFor(job: Job): string | undefined {
-  const { http } = getConfig();
-  return http.publicBaseUrl ? `${http.publicBaseUrl}/cards/${job.id}/` : undefined;
-}
 
 /**
  * Full lifecycle for one funded order: accept → build → package → upload → submit delivery.
@@ -316,7 +311,6 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
       await notify("job.building", { orderId, jobId: job.id });
       const extra = job.redoRound ? `This is redo round ${job.redoRound}. Buyer's change request: ${opts.redoNote ?? job.notes.at(-1)}` : undefined;
       const outputs = await buildCard(job, extra);
-      job.previewUrl = previewUrlFor(job);
       job.status = "built";
       saveJob(job);
       const pack = await packageJob(job, outputs);
@@ -328,7 +322,7 @@ export async function processOrder(orderId: string, opts: { redoNote?: string } 
       await deliver(job, pack);
     }
     if (job.status === "delivered") {
-      await notify("job.delivered", { orderId, jobId: job.id, previewUrl: job.previewUrl, tx: job.txHashes });
+      await notify("job.delivered", { orderId, jobId: job.id, tx: job.txHashes });
       if (job.conversationId) {
         const msg = deliveryNotice(job);
         try {
@@ -398,7 +392,7 @@ export async function sweepOrders(): Promise<string[]> {
       job.error = undefined;
       if (typeof o.latestTxHash === "string" && !Object.values(job.txHashes).includes(o.latestTxHash)) job.txHashes[job.redoRound ? `submitDelivery-redo${job.redoRound}` : "submitDelivery"] = o.latestTxHash;
       saveJob(job);
-      await notify("job.delivered", { orderId: o.id, jobId: job.id, previewUrl: job.previewUrl, tx: job.txHashes, reconciled: true });
+      await notify("job.delivered", { orderId: o.id, jobId: job.id, tx: job.txHashes, reconciled: true });
       if (job.conversationId) await postNotice(job.conversationId, deliveryNotice(job)).catch((err) => log.warn(`could not post delivery notice: ${String(err)}`));
     } else if (o.status === "SETTLED" && job && job.status !== "settled") {
       job.status = "settled";

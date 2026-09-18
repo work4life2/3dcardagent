@@ -149,7 +149,7 @@ export async function handleChatMessage(ev: WatchEvent): Promise<void> {
     if (orderId) {
       const job = findJobByOrder(orderId);
       if (job) {
-        context.push(`This conversation belongs to order ${orderId}. Job status: ${job.status}${job.previewUrl ? `, preview: ${job.previewUrl}` : ""}${job.error ? `, last error: ${job.error}` : ""}.`);
+        context.push(`This conversation belongs to order ${orderId}. Job status: ${job.status}${job.error ? `, last error: ${job.error}` : ""}.`);
       } else {
         context.push(`This conversation belongs to order ${orderId}; no build has started yet (it starts automatically once the order is funded).`);
       }
@@ -162,8 +162,6 @@ export async function handleChatMessage(ev: WatchEvent): Promise<void> {
     } else if (remoteState && remoteState.status !== "active") {
       context.push(`The previous quote in this conversation is ${remoteState.status}. A new brief needs a new OFFER line.`);
     }
-    const { http } = getConfig();
-    if (http.publicBaseUrl) context.push(`Gallery of delivered cards: ${http.publicBaseUrl}/cards/`);
     const history = historyLines(remote, conv);
     const prompt = `Context:\n${context.join("\n")}\n\nConversation so far (chronological; "You" is us):\n${history}\n\nWrite your next reply to the buyer (reply text only, no prefix). If you are quoting, end with the single OFFER line.`;
 

@@ -97,7 +97,6 @@ async function main() {
       try {
         const out = await buildCard(job);
         job.status = "built";
-        job.previewUrl = cfg.http.publicBaseUrl ? `${cfg.http.publicBaseUrl}/cards/${job.id}/` : undefined;
         saveJob(job);
         const pack = await packageJob(job, out);
         process.stdout.write(`\n✅ Done: ${job.dir}\n  preview render: ${out.hero ?? "-"}\n  deliverable:    ${pack.zip}\n  view locally:   cd ${out.webDir} && node server.mjs  → http://127.0.0.1:4173\n  or run serve and open /cards/${job.id}/\n`);
@@ -114,7 +113,7 @@ async function main() {
       if (!rest[0]) usage();
       const { processOrder } = await import("./jobs/orderWorker.js");
       const job = await processOrder(rest[0], { redoNote: rest[1] });
-      process.stdout.write(JSON.stringify({ id: job.id, status: job.status, previewUrl: job.previewUrl, tx: job.txHashes }, null, 2) + "\n");
+      process.stdout.write(JSON.stringify({ id: job.id, status: job.status, tx: job.txHashes }, null, 2) + "\n");
       break;
     }
     case "model": {

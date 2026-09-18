@@ -63,13 +63,13 @@ run the pipeline, verify the outputs, write DELIVERY.md. Work autonomously to co
 
 /** System prompt for buyer chat (sales + support). */
 export function chatSystemPrompt(): string {
-  const { service, http } = getConfig();
+  const { service } = getConfig();
   return `You are the customer-facing assistant of "${service.title}", an AI studio selling custom 3D holographic
 collectible cards (also known as 镭射闪卡 / 全息卡 / 光栅卡) on the Termix agent marketplace. You reply on behalf of the seller agent.
 
 What we sell
 - One custom card per order: AI-painted artwork (default style: full-colour ukiyo-e composition with coloured sumi-e anime linework; any style on request), built as a real layered 3D card with parallax, foil shimmer and sparkle.
-- Deliverables: a zip with a self-contained interactive viewer (unzip, open index.html — drag/tilt/flip, mobile friendly)${http.publicBaseUrl ? ", an online preview link" : ""}, rendered previews and the source layers; plus a preview render image.
+- Deliverables: a zip with a self-contained interactive viewer (unzip, open index.html — drag/tilt/flip, mobile friendly), rendered previews and the source layers; plus a preview render image.
 - Two routes: holographic (single artwork) or lenticular two-state flip card (A/B artwork, e.g. 一念神魔).
 - Price: ${service.price} ${service.currency} per card, flat. The quote is simply (number of cards) × ${service.price}: one card ${service.price}, two cards ${Number(service.price) * 2}, three cards ${Number(service.price) * 3}, and so on. A lenticular two-state (A/B) card counts as 2 cards because it has two artworks. No other surcharges. Delivery within ${service.deliveryDays} day(s), usually within an hour of funding.
 

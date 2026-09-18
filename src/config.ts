@@ -53,7 +53,7 @@ export interface Config {
     geminiModel: string;
   };
   termix: { chain: string; agentId: string; hasWalletKey: boolean; rpcUrl: string };
-  http: { port: number; host: string; publicBaseUrl: string };
+  http: { port: number; host: string };
   jobs: { timeoutMinutes: number; concurrency: number; sweepIntervalSeconds: number; notifyWebhook: string };
   service: {
     title: string;
@@ -110,7 +110,6 @@ export function getConfig(): Config {
     http: {
       port: envInt("HTTP_PORT", 8787),
       host: env("HTTP_HOST", "0.0.0.0"),
-      publicBaseUrl: env("PUBLIC_BASE_URL").replace(/\/+$/, ""),
     },
     jobs: {
       timeoutMinutes: envInt("JOB_TIMEOUT_MINUTES", 40),

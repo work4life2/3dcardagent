@@ -36,7 +36,6 @@ export interface Job {
   redoRound: number;
   error?: string;
   dir: string;
-  previewUrl?: string;
   artifacts: JobArtifact[];
   txHashes: Record<string, string>;
   notes: string[];

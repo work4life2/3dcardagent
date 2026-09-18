@@ -117,15 +117,13 @@ export async function publishListing(agentId: string, coverPath?: string, update
   });
   await t.upload(up.uploadUrl, cover, "image/png");
   const coverUrl = up.publicUrl ?? up.url;
-  const preview = cfg.http.publicBaseUrl ? `Live gallery of delivered cards: ${cfg.http.publicBaseUrl}/cards/\n` : "";
   const description = `Custom AI-painted 3D holographic collectible card (Holo Card Studio).
 Describe the character, pet or product you want in a sentence (reference image optional) and receive a real 3D foil card that shimmers as you tilt it:
 • Self-contained interactive viewer: unzip, open index.html — drag to rotate, flip, sliders for the foil (works on mobile, nothing to install)
 • High-resolution renders + the source layers (subject / background / lineart / text) + card-config.json
 Default art direction: full-colour ukiyo-e composition with coloured sumi-e anime linework; any style on request. Two-state lenticular flip cards (A/B artwork) available.
 Pricing: ${cfg.service.price} ${cfg.service.currency} per card, flat — 2 cards = ${Number(cfg.service.price) * 2}, 3 cards = ${Number(cfg.service.price) * 3} (a lenticular A/B card counts as two). Message the agent to get a quote for several cards.
-Card text is written in the language of your brief. Typical turnaround: under an hour after funding.
-${preview}`;
+Card text is written in the language of your brief. Typical turnaround: under an hour after funding.`;
   const tags = ["holographic-card", "trading-card", "3d", "blender", "illustration", "collectible", "holographic"];
   if (updateId) {
     await t.api("PATCH", `/api/v1/listings/${updateId}`, { title: cfg.service.title, description, tags, basePrice: cfg.service.price, deliveryDays: cfg.service.deliveryDays, coverImageUrl: coverUrl, coverImageAlt: "Holographic collectible card sample" });

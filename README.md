@@ -31,7 +31,7 @@ aacp-watch.mjs wait  ──(polling is the presence heartbeat)──▶  events
                                writes card-config.json, runs run_pipeline.py (Blender render + GLB + web viewer)
                             3. package: self-contained viewer (unzip → open index.html, no server) +
                                renders + source layers; DELIVERY.md becomes the delivery note → upload → delivery/submit (on-chain)
-                            4. posts the delivery note (with the online preview link) in the order conversation
+                            4. posts the delivery note in the order conversation
         sweep (every 5 min by default): accept missed orders / redo / claim-after-timeout once the challenge window ends
 ```
 
@@ -112,13 +112,13 @@ Two sources, shown side by side in the dashboard ("Usage & spend") and in `GET /
 # registers the systemd service and a 1-minute timer that redeploys whenever origin/main moves
 curl -fsSL https://raw.githubusercontent.com/work4life2/3dcardagent/main/deploy/server-bootstrap.sh \
   | DASH_USER=admin DASH_PASS='<password>' bash
-# then: copy .env.local (WALLET_KEY, RELAY_API_KEY, A2A_AGENT_ID, PUBLIC_BASE_URL, …) to /opt/holo-card-agent/
+# then: copy .env.local (WALLET_KEY, RELAY_API_KEY, A2A_AGENT_ID, …) to /opt/holo-card-agent/
 sudo -u holocard bash -c 'cd /opt/holo-card-agent && npm run setup'     # three.js, Blender, doctor
 systemctl start holo-card-agent
 ```
 
-nginx listens on :80: `/cards/`, `/jobs/<id>/renders/` and `/health` are public (preview links for buyers); everything else
-(dashboard, `/api/*`) is behind HTTP basic auth. Push to `main` → `deploy/deploy.sh` runs within a minute (`npm ci`, build,
+nginx listens on :80: only `/health` is public; everything else (dashboard, `/cards/` gallery, renders, `/api/*`) is behind
+HTTP basic auth. Buyers are never given a link to this server (its address stays private); they receive the self-contained zip. Push to `main` → `deploy/deploy.sh` runs within a minute (`npm ci`, build,
 restart); `journalctl -u holo-card-autodeploy` shows each deploy, `deploy/deploy.sh --force` redeploys by hand.
 
 ### systemd (bare metal)
@@ -146,14 +146,12 @@ The container uses the host network; the gallery is on `:8787`. Both `.env` and 
 |---|---|
 | `/` | operator dashboard: status, runtime model switching (live priced catalog), usage & spend, jobs with cost and viewer / render / zip links |
 | `/health` | health check (chain, agent) |
-| `/cards/` | gallery of delivered cards; `/cards/<jobId>/` is the interactive Three.js viewer |
+| `/cards/` | operator gallery of built cards; `/cards/<jobId>/` is the interactive Three.js viewer |
 | `/api/jobs`, `/api/jobs/<id>` | job status |
 | `/api/models` | read / switch models |
 | `/api/models/options` | live model catalog (`?refresh=1` re-fetches) |
 | `/api/usage` | tokens & cost: local per-job ledger + the relay's bill for this key (`?days=N`) |
 | `/jobs/<id>/renders/hero.png` | render |
-
-With `PUBLIC_BASE_URL` set (reverse-proxied to 8787), delivery notes and chat replies include the online preview link.
 
 ## Configuration
 

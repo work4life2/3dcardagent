@@ -106,7 +106,6 @@ export function startHttpServer(): http.Server {
         agentId: cfg.termix.agentId || null,
         walletConfigured: cfg.termix.hasWalletKey,
         imageProvider: imageProviderReady().reason,
-        publicBaseUrl: cfg.http.publicBaseUrl || null,
         service: cfg.service,
         jobs: { total: jobs.length, active: jobs.filter((j) => ["queued", "accepting", "building", "delivering"].includes(j.status)).length, failed: jobs.filter((j) => j.status === "failed").length },
         uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
@@ -150,9 +149,9 @@ export function startHttpServer(): http.Server {
     }
     if (p === "/api/jobs") {
       const usage = new Map(summarizeUsage().byJob.map((j) => [j.jobId, j]));
-      return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, previewUrl, error }) => {
+      return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, error }) => {
         const u = usage.get(id);
-        return { id, orderId, status, createdAt, updatedAt, previewUrl, error, usage: u ? { calls: u.calls, input: u.input, output: u.output, cacheRead: u.cacheRead, cost: u.cost } : null };
+        return { id, orderId, status, createdAt, updatedAt, error, usage: u ? { calls: u.calls, input: u.input, output: u.output, cacheRead: u.cacheRead, cost: u.cost } : null };
       })));
     }
     const m = p.match(/^\/api\/jobs\/([^/]+)$/);

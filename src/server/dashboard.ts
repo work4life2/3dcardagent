@@ -66,7 +66,7 @@ const usd=n=>n==null?'—':n===0?'$0':n<0.01?'$'+n.toFixed(5):'$'+n.toFixed(3);
 const num=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e4?(n/1e3).toFixed(0)+'k':String(n);
 let OPTIONS={llm:[],image:[]};
 async function loadStatus(){const s=await fetch('/api/status').then(r=>r.json());
- $('#status').innerHTML=[['Chain',s.chain],['Hosted agent',s.agentId||'— not set'],['Wallet',s.walletConfigured?'key mode':'WALLET_KEY missing'],['Image provider',s.imageProvider],['Listing',s.service.title+' · '+s.service.price+' '+s.service.currency+' · '+s.service.deliveryDays+'d'],['Public URL',s.publicBaseUrl||'—'],['Jobs',s.jobs.total+' total · '+s.jobs.active+' active · '+s.jobs.failed+' failed'],['Uptime',Math.round(s.uptimeSeconds/60)+' min']]
+ $('#status').innerHTML=[['Chain',s.chain],['Hosted agent',s.agentId||'— not set'],['Wallet',s.walletConfigured?'key mode':'WALLET_KEY missing'],['Image provider',s.imageProvider],['Listing',s.service.title+' · '+s.service.price+' '+s.service.currency+' · '+s.service.deliveryDays+'d'],['Jobs',s.jobs.total+' total · '+s.jobs.active+' active · '+s.jobs.failed+' failed'],['Uptime',Math.round(s.uptimeSeconds/60)+' min']]
  .map(([k,v])=>'<div class="kv"><b>'+k+'</b><span>'+esc(v)+'</span></div>').join('');}
 function showPrice(){const f=$('#models');for(const k of ['buildModel','chatModel','imageModel']){const v=f.elements[k].value;const list=k==='imageModel'?OPTIONS.image:OPTIONS.llm;const o=list.find(x=>x.id===v);
  f.querySelector('[data-price='+k+']').textContent=o?o.label:(v?'not in the catalog — will be tried as typed':'');}}
