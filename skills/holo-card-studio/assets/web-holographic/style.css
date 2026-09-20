@@ -6,7 +6,7 @@
 :root{--bg:#fff;--panel:#fff;--gold:#8b6a23;--ink:#17191d;--muted:#737982;--line:#11111112;color-scheme:light}dialog{background:#fff;color:#17191d}dialog::backdrop{background:#ffffffee}.actions .primary{color:#fff}.display{background:#fff}
 
 /* Share on X + the referral banner shown only to visitors arriving from a shared tweet */
-.controls .save+.save{border-left:0;padding-left:12px;min-width:auto}
+@media(min-width:761px){.controls .save+.save{border-left:0;padding-left:12px;min-width:auto}}
 /* Share sits in the header where the about link used to, as a filled button: it is the one
    action we want a delighted buyer to notice, so it should not read as another quiet text link. */
 .share-x{display:none;align-items:center;gap:8px;background:var(--gold);color:#fff;border:1px solid var(--gold);font-size:11px;letter-spacing:1.6px;text-transform:uppercase;padding:12px 19px;transition:background .2s,box-shadow .2s,transform .2s}
@@ -21,3 +21,8 @@
 .promo-close{font-size:19px;line-height:1;color:var(--muted);padding:0 2px}
 @media(max-width:760px){#promo{gap:12px;padding:11px 6%;font-size:10px;text-align:left}
  .share-x{padding:9px 13px;font-size:10px;letter-spacing:1px;gap:6px}}
+
+/* The mobile stage is 570px inside a 620px .display, and the centred layout left only 25px under
+   the card — so the hint row sat across the stage's bottom edge. Give it a band of its own
+   without shrinking the card. */
+@media(max-width:760px){.display{height:670px}}
