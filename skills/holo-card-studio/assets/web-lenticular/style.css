@@ -5,3 +5,12 @@
 #promo a{color:#1764d5;text-decoration:none;font-weight:600;white-space:nowrap}
 #promo a:hover{text-decoration:underline}
 .promo-close{background:transparent;border:0;font-size:19px;line-height:1;color:#8b93a0;cursor:pointer;padding:0 2px}
+/* Share sits in the header where "Compare artwork" used to, as a filled button: it is the one
+   action we want a delighted buyer to notice, so it should not read as another quiet text link. */
+.share-x{display:none;align-items:center;gap:8px;background:#1764d5;color:#fff;border-radius:6px;padding:10px 16px;font-size:12px;font-weight:600;transition:background .2s,box-shadow .2s,transform .2s}
+header .share-x:not([hidden]){display:inline-flex;background:#1764d5;color:#fff;padding:10px 16px}
+.share-x:hover{background:#1155b8;box-shadow:0 7px 18px #1764d533;transform:translateY(-1px)}
+.share-x:active{transform:none}
+.share-x svg{flex:none;display:block}
+.toolbar button{white-space:nowrap}
+@media(max-width:760px){header .share-x:not([hidden]){padding:8px 13px;font-size:11px;gap:6px}}

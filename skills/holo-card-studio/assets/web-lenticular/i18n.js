@@ -2,9 +2,9 @@
 export const STRINGS = {
   en: {
     'doc-title': 'Lenticular Card', 'default-title': 'Two-state card', 'default-description': 'Two complete states, hidden in the turn.',
-    'state-a': 'State A', 'state-b': 'State B', 'compare': 'Compare artwork', 'stage-aria': 'Drag the card to see the lenticular change',
+    'state-a': 'State A', 'state-b': 'State B', 'compare': 'Compare', 'stage-aria': 'Drag the card to see the lenticular change',
     'loading': 'Loading the card…', 'hint': 'Drag left / right to switch state', 'angle': 'Turn', 'reset': 'Reset', 'auto': 'Auto', 'back': 'Back', 'save': 'Save',
-    'share-x': 'Share on X',
+    'share-x': 'Share on X', 'share-aria': 'Share this card on X',
     'tweet-text': 'I made a 3D lenticular card — "{title}" — it flips between two forms as you turn it ✨ Make your own',
     'banner-text': 'Like this card? Get one made from your own idea.',
     'banner-cta': 'Make mine ↗', 'banner-close': 'Close this message',
@@ -16,7 +16,7 @@ export const STRINGS = {
     'doc-title': '收藏卡', 'default-title': '一念神魔', 'default-description': '两个完整形态，藏在转动之间。',
     'state-a': '形态 A', 'state-b': '形态 B', 'compare': '对照原画', 'stage-aria': '拖动卡面查看光栅变化',
     'loading': '载入卡面…', 'hint': '左右拖动，换一个形态', 'angle': '转动', 'reset': '复位', 'auto': '自动', 'back': '背面', 'save': '保存',
-    'share-x': '分享到 X',
+    'share-x': '分享到 X', 'share-aria': '把这张卡分享到 X',
     'tweet-text': '我做了一张「{title}」光栅卡，转动会在两种形态之间翻转 ✨ 你也来做一张',
     'banner-text': '喜欢这张卡？也可以做一张属于你自己的。',
     'banner-cta': '做一张我的 ↗', 'banner-close': '关闭提示',
