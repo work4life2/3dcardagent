@@ -56,6 +56,23 @@ export async function runDoctor(opts: { network?: boolean } = { network: true })
     add("LLM model", false, String(err instanceof Error ? err.message : err));
   }
 
+  if (!cfg.share.enabled) {
+    add("share to X", false, "off — set the S3_* variables (and an https:// S3_URL) to publish a shareable page per card", false);
+  } else if (opts.network !== false) {
+    // Sharing only works if anonymous readers (X's crawler) can fetch the objects, which depends
+    // on a bucket policy the upload credentials cannot inspect — so probe it for real.
+    const { probePublicMode } = await import("../hosting/s3.js");
+    const mode = await probePublicMode(`${cfg.share.keyPrefix}/_doctor`).catch((err) => {
+      add("share bucket", false, `upload failed: ${String(err).slice(0, 160)}`, false);
+      return "failed" as const;
+    });
+    if (mode !== "failed") {
+      add("share to X", Boolean(mode), mode ? `${cfg.share.bucket} is publicly readable (${mode})` : "bucket is not publicly readable — see the policy printed above", false);
+    }
+  } else {
+    add("share to X", true, `${cfg.share.bucket} (public read not probed: --no-network)`, false);
+  }
+
   if (opts.network !== false) {
     const t = termix();
     add("termix wallet", cfg.termix.hasWalletKey, cfg.termix.hasWalletKey ? `key mode, chain ${cfg.termix.chain}` : "WALLET_KEY not set — put the provider hot-wallet private key in .env.local");

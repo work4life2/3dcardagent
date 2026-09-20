@@ -4,3 +4,12 @@
 
 /* Unified flat white presentation */
 :root{--bg:#fff;--panel:#fff;--gold:#8b6a23;--ink:#17191d;--muted:#737982;--line:#11111112;color-scheme:light}dialog{background:#fff;color:#17191d}dialog::backdrop{background:#ffffffee}.actions .primary{color:#fff}.display{background:#fff}
+
+/* Share on X + the referral banner shown only to visitors arriving from a shared tweet */
+.controls .save+.save{border-left:0;padding-left:12px;min-width:auto}
+#promo{display:none;align-items:center;justify-content:center;gap:18px;padding:13px 5%;background:#fdf8ee;border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1px;color:var(--ink)}
+#promo:not([hidden]){display:flex}
+#promo a{color:var(--gold);text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:2px;white-space:nowrap}
+#promo a:hover{opacity:.72}
+.promo-close{font-size:19px;line-height:1;color:var(--muted);padding:0 2px}
+@media(max-width:760px){#promo{gap:12px;padding:11px 6%;font-size:10px;text-align:left}}

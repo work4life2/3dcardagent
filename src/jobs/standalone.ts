@@ -6,6 +6,15 @@ import { logger } from "../log.js";
 
 const log = logger("standalone");
 
+export interface StandaloneOptions {
+  /**
+   * Inline card.glb and the textures as data URLs (default). Required for the buyer's zip, which
+   * is opened over file://. Set false for a copy served over HTTP — the same bundle, but assets
+   * load normally so the page streams and caches instead of arriving as one ~15 MB script.
+   */
+  embed?: boolean;
+}
+
 /**
  * Turn a pipeline web viewer (ES modules + importmap + fetch, which only works behind an
  * HTTP server) into a folder that opens directly from disk: unzip → double-click index.html.
@@ -14,7 +23,13 @@ const log = logger("standalone");
  * - card-config.json and card.glb are embedded and served through a tiny fetch shim
  *   (file:// blocks fetch/XHR); textures keep loading through <img>, which file:// allows.
  */
-export async function buildStandaloneViewer(webDir: string, outDir: string, mode: "holographic" | "lenticular"): Promise<void> {
+export async function buildStandaloneViewer(
+  webDir: string,
+  outDir: string,
+  mode: "holographic" | "lenticular",
+  opts: StandaloneOptions = {},
+): Promise<void> {
+  const embed = opts.embed !== false;
   const cfg = getConfig();
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(path.join(outDir, "assets"), { recursive: true });
@@ -27,21 +42,26 @@ export async function buildStandaloneViewer(webDir: string, outDir: string, mode
   const glb = fs.readFileSync(path.join(webDir, "assets", "card.glb"));
   // Textures: three's ImageLoader sets crossOrigin="anonymous", which file:// rejects, so they are embedded as data URLs.
   const images: Record<string, string> = {};
-  for (const f of fs.readdirSync(path.join(webDir, "assets"))) {
-    if (!/\.(png|jpe?g|webp)$/i.test(f)) continue;
-    const mime = /\.png$/i.test(f) ? "image/png" : /\.webp$/i.test(f) ? "image/webp" : "image/jpeg";
-    images[`assets/${f}`] = `data:${mime};base64,${fs.readFileSync(path.join(webDir, "assets", f)).toString("base64")}`;
+  if (embed) {
+    for (const f of fs.readdirSync(path.join(webDir, "assets"))) {
+      if (!/\.(png|jpe?g|webp)$/i.test(f)) continue;
+      const mime = /\.png$/i.test(f) ? "image/png" : /\.webp$/i.test(f) ? "image/webp" : "image/jpeg";
+      images[`assets/${f}`] = `data:${mime};base64,${fs.readFileSync(path.join(webDir, "assets", f)).toString("base64")}`;
+    }
   }
 
-  // Copy textures and any other static assets except the GLB (embedded) and node_modules.
+  // Copy textures and any other static assets. Over HTTP the GLB is fetched normally, so it is
+  // only left out of the folder when it has been embedded.
   for (const f of fs.readdirSync(path.join(webDir, "assets"))) {
-    if (f === "card.glb") continue;
+    if (f === "card.glb" && embed) continue;
     fs.copyFileSync(path.join(webDir, "assets", f), path.join(outDir, "assets", f));
   }
   fs.copyFileSync(path.join(webDir, "style.css"), path.join(outDir, "style.css"));
   fs.writeFileSync(path.join(outDir, "card-config.json"), JSON.stringify(config, null, 2));
 
-  const shim = `
+  const shim = !embed
+    ? ""
+    : `
 (() => {
   const EMBED = {
     config: ${JSON.stringify(config)},
@@ -83,17 +103,19 @@ export async function buildStandaloneViewer(webDir: string, outDir: string, mode
   const js = result.outputFiles[0].text;
   fs.writeFileSync(path.join(outDir, "app.bundle.js"), js);
   // The shim must run before the bundle starts fetching, so it is a separate, non-deferred script.
-  fs.writeFileSync(path.join(outDir, "embed.js"), shim);
+  if (embed) fs.writeFileSync(path.join(outDir, "embed.js"), shim);
 
   let html = fs.readFileSync(path.join(webDir, "index.html"), "utf8");
   html = html.replace(/<script type="importmap">[\s\S]*?<\/script>/, "");
-  const scripts = '<script src="./embed.js"></script><script defer src="./app.bundle.js"></script>';
+  const scripts = (embed ? '<script src="./embed.js"></script>' : "") + '<script defer src="./app.bundle.js"></script>';
   html = html.replace(/<script type="module" src="\.?\/?app\.js"><\/script>/, scripts);
   if (!html.includes("app.bundle.js")) html = html.replace("</body>", scripts + "</body>");
   fs.writeFileSync(path.join(outDir, "index.html"), html);
-  fs.writeFileSync(
-    path.join(outDir, "OPEN-ME.txt"),
-    "Double-click index.html to view the card (no server needed). Drag to rotate, F to flip, R to reset, sliders tune the foil.\n",
-  );
-  log.info(`standalone viewer written to ${outDir} (${Math.round(js.length / 1024)} KB bundle)`);
+  if (embed) {
+    fs.writeFileSync(
+      path.join(outDir, "OPEN-ME.txt"),
+      "Double-click index.html to view the card (no server needed). Drag to rotate, F to flip, R to reset, sliders tune the foil.\n",
+    );
+  }
+  log.info(`${embed ? "standalone" : "hosted"} viewer written to ${outDir} (${Math.round(js.length / 1024)} KB bundle)`);
 }

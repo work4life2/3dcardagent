@@ -9,6 +9,7 @@ import { createCardSession } from "../agent/session.js";
 import { pickDefaultFont } from "../agent/fonts.js";
 import { getModels } from "../runtimeConfig.js";
 import { buildStandaloneViewer } from "./standalone.js";
+import { publishCard, renderShareImage, setShareLinks, shareTarget } from "./share.js";
 import type { Job } from "./store.js";
 import { saveJob } from "./store.js";
 
@@ -183,9 +184,13 @@ export async function buildCard(job: Job, extraInstructions?: string): Promise<B
  * Build the deliverable: a folder that opens from disk (index.html at the root), plus the
  * renders, source layers and config — zipped. The Blender project stays in the job dir (not delivered).
  */
-export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: string; preview?: string; note?: string }> {
+export async function packageJob(job: Job, out: BuildOutputs): Promise<{ zip: string; preview?: string; note?: string; share?: string }> {
   const distDir = path.join(job.dir, "dist");
   const pkg = path.join(distDir, "package");
+  const hosted = path.join(distDir, "hosted");
+  // Before packaging: buildStandaloneViewer inlines web/card-config.json into embed.js, and the
+  // viewer reads that inlined copy — links written after this point never reach the buyer.
+  setShareLinks(job, out.config);
   fs.rmSync(pkg, { recursive: true, force: true });
   fs.mkdirSync(pkg, { recursive: true });
   await buildStandaloneViewer(out.webDir, pkg, out.mode);
@@ -218,5 +223,19 @@ Drag to rotate, F to flip, R to reset; the sliders tune the foil shimmer and par
   if (fs.existsSync(zip)) fs.unlinkSync(zip);
   const res = await run("zip", ["-r", "-q", zip, "."], { cwd: pkg, timeoutMs: 10 * 60_000 });
   if (res.code !== 0) throw new Error(`zip failed: ${res.stderr.slice(-400)}`);
-  return { zip, preview: out.hero, note: out.deliveryMd };
+
+  // The public copy the buyer can post on X. Everything below is best-effort: a bucket problem
+  // must never cost the buyer their card.
+  let share: string | undefined;
+  if (shareTarget(job.id)) {
+    try {
+      fs.rmSync(hosted, { recursive: true, force: true });
+      await buildStandaloneViewer(out.webDir, hosted, out.mode, { embed: false });
+      const image = await renderShareImage(job, out.hero, out.config);
+      share = await publishCard(job, hosted, image, out.config);
+    } catch (err) {
+      log.error(`job ${job.id}: could not publish the shareable copy (the card is unaffected): ${String(err)}`);
+    }
+  }
+  return { zip, preview: out.hero, note: out.deliveryMd, share };
 }

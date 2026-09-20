@@ -36,6 +36,11 @@ export interface Job {
   redoRound: number;
   error?: string;
   dir: string;
+  /**
+   * Public page for this card on the share bucket, once published. Never this server: the online
+   * preview that leaked the host's IP was removed in 2fdcf89 and stays removed.
+   */
+  shareUrl?: string;
   artifacts: JobArtifact[];
   txHashes: Record<string, string>;
   notes: string[];

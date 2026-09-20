@@ -21,6 +21,7 @@ Usage:
   holo-card-agent make "<brief>" [--ref <image path or URL>] [--name <jobId>]
                                               build one card locally (no marketplace), for testing
   holo-card-agent deliver <orderId>           process / retry one order manually
+  holo-card-agent publish <jobId>             re-package a built job and push its public share page to S3
   holo-card-agent jobs                        list jobs
   holo-card-agent pi [args...]                interactive pi with both skills and the image tools loaded
 `);
@@ -99,7 +100,11 @@ async function main() {
         job.status = "built";
         saveJob(job);
         const pack = await packageJob(job, out);
-        process.stdout.write(`\n✅ Done: ${job.dir}\n  preview render: ${out.hero ?? "-"}\n  deliverable:    ${pack.zip}\n  view locally:   cd ${out.webDir} && node server.mjs  → http://127.0.0.1:4173\n  or run serve and open /cards/${job.id}/\n`);
+        process.stdout.write(
+          `\n✅ Done: ${job.dir}\n  preview render: ${out.hero ?? "-"}\n  deliverable:    ${pack.zip}\n` +
+            (pack.share ? `  share page:     ${pack.share}\n` : "") +
+            `  view locally:   cd ${out.webDir} && node server.mjs  → http://127.0.0.1:4173\n  or run serve and open /cards/${job.id}/\n`,
+        );
       } catch (err) {
         job.status = "failed";
         job.error = String(err instanceof Error ? err.message : err);
@@ -107,6 +112,32 @@ async function main() {
         log.error(job.error);
         process.exit(1);
       }
+      break;
+    }
+    case "publish": {
+      // Re-package an already built job and push the public copy to the share bucket. The only
+      // end-to-end path that needs neither an order nor a chain transaction.
+      if (!rest[0]) usage();
+      const { loadJob, saveJob } = await import("./jobs/store.js");
+      const { packageJob, verifyOutputs } = await import("./jobs/cardBuilder.js");
+      const job = loadJob(rest[0]);
+      if (!job) {
+        log.error(`no such job: ${rest[0]}`);
+        process.exit(1);
+      }
+      const check = verifyOutputs(job.dir);
+      if (!check.ok || !check.outputs) {
+        log.error(`job ${job.id} is not built: missing ${check.missing.join(", ")}`);
+        process.exit(1);
+      }
+      const pack = await packageJob(job, check.outputs);
+      job.shareUrl = pack.share;
+      saveJob(job);
+      if (!pack.share) {
+        log.error("nothing was published — check the S3 settings and the warnings above");
+        process.exit(1);
+      }
+      process.stdout.write(`\n✅ Published: ${pack.share}\n  from a shared tweet: ${pack.share}?from=x\n`);
       break;
     }
     case "deliver": {

@@ -147,6 +147,9 @@ Card text is written in the language of your brief. Typical turnaround: under an
   process.stdout.write(`Draft created: ${draft.id}\n`);
   await t.api("POST", `/api/v1/listings/${draft.id}/publish`);
   process.stdout.write(`✅ Published listing ${draft.id} (${cfg.service.price} ${cfg.service.currency}, ${cfg.service.deliveryDays}-day delivery, instant-buyable).\n`);
+  // The referral banner on every shared card points at this listing, so a new id has to be copied
+  // into the environment by hand — nothing here rewrites .env.
+  process.stdout.write(`   Point shared cards at it: set LISTING_URL=https://www.agent.family/listing?id=${draft.id} in .env\n`);
 }
 
 export async function fullSetup(): Promise<void> {

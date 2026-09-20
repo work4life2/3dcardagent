@@ -93,6 +93,17 @@ function setupControls(){
  $('auto').onclick=()=>{if(flipped)flip();setAuto(!auto);};$('flip').onclick=flip;$('reset').onclick=reset;
  $('save').onclick=()=>{try{composer.render();const a=document.createElement('a');a.download=(config.title||'card')+'-holographic.png';a.href=renderer.domElement.toDataURL('image/png');a.click();}catch(e){$('save').textContent=t('save-failed');}};
  $('details').onclick=$('soundless').onclick=()=>$('about').showModal();$('about').querySelector('.close').onclick=()=>$('about').close();
+ setupShare();
+}
+const remembered=k=>{try{return sessionStorage.getItem(k);}catch(e){return null;}};
+const remember=(k,v)=>{try{sessionStorage.setItem(k,v);}catch(e){}};
+// The share link points at the hosted copy of this card: X builds the tweet's preview image from
+// that page's og:image, so sharing a local file would post a bare link. Hidden when unpublished.
+function setupShare(){
+ const url=config.shareUrl,listing=config.listingUrl;
+ if(url){const btn=$('share-x');btn.hidden=false;btn.onclick=()=>{const text=t('tweet-text').replace('{title}',config.title||t('brand'));const target=url+(url.includes('?')?'&':'?')+'from=x';open('https://x.com/intent/post?text='+encodeURIComponent(text)+'&url='+encodeURIComponent(target),'_blank','noopener');};}
+ // Only visitors who arrived from a shared tweet are nudged towards buying one of their own.
+ if(listing&&new URLSearchParams(location.search).get('from')==='x'&&remembered('holo-promo')!=='dismissed'){const promo=$('promo');$('promo-cta').href=listing;promo.hidden=false;$('promo-close').onclick=()=>{promo.remove();remember('holo-promo','dismissed');};}
 }
 function animate(now){const dt=Math.min((now-lastTime)/1000,.1)||0;lastTime=now;if(!document.hidden)elapsed+=dt;if(auto){targetY=Math.sin(elapsed*.65)*.38;targetX=Math.sin(elapsed*.85)*.12;}
  const ease=reduced?1:1-Math.exp(-dt*8);rotationX+=(targetX-rotationX)*ease;rotationY+=(targetY-rotationY)*ease;root.rotation.set(rotationX,rotationY,0);root.updateMatrixWorld(true);

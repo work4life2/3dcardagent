@@ -41,7 +41,8 @@ language the buyer used in the brief (English if the brief is in English or the 
 own UI is bilingual and switches automatically ("lang" in card-config.json is set by the service), do not translate it.
 When done, write \`DELIVERY.md\` in the project dir: a short buyer-facing note (under 1500 characters) describing
 the card and the style choices. It is sent to the buyer as the delivery message together with the viewer zip and a
-preview render, so do not list internal files or paths.
+preview render, so do not list internal files or paths. Do not invent any links either: the online
+address of the card is appended automatically by the service, which is the only place that knows it.
 Then stop. Do not start web servers or open browsers.
 `;
 }

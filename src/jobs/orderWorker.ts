@@ -212,9 +212,10 @@ async function uploadArtifact(job: Job, file: string, contentType: string, label
 }
 
 /** Two artifacts: the self-contained viewer zip and the preview render. DELIVERY.md goes into the delivery note. */
-async function deliver(job: Job, pack: { zip: string; preview?: string; note?: string }): Promise<void> {
+async function deliver(job: Job, pack: { zip: string; preview?: string; note?: string; share?: string }): Promise<void> {
   job.status = "delivering";
   job.artifacts = [];
+  job.shareUrl = pack.share;
   saveJob(job);
   const ids: string[] = [];
   ids.push(await uploadArtifact(job, pack.zip, "application/zip", "holo-card-project.zip"));
@@ -243,16 +244,32 @@ function deliveryNoteText(job: Job, deliveryMd?: string): string {
   } catch {
     /* no notes */
   }
-  const text = body ? `${head}\n\n${body}` : head;
-  return text.length > 3800 ? text.slice(0, 3790) + "…" : text;
+  const link = job.shareUrl
+    ? zh
+      ? `\n\n在线查看与分享：${job.shareUrl}\n（打开后点「分享到 X」，会带上卡面效果图）`
+      : `\n\nView & share online: ${job.shareUrl}\n(open it and hit "Share on X" to post the card with its preview image)`
+    : "";
+  // Truncate the note, not the link: the agent's DELIVERY.md is the part that can run long.
+  const room = 3800 - link.length;
+  let text = body ? `${head}\n\n${body}` : head;
+  if (text.length > room) text = text.slice(0, room - 1) + "…";
+  return text + link;
 }
 
 /** Buyer-facing delivery notice in the language of the brief (English by default). */
 function deliveryNotice(job: Job): string {
   if (isChinese(job.brief)) {
-    return "✅ 您的闪卡已交付！交付物：一个 zip（解压后双击 index.html 即可交互查看，内含渲染图与源图层）和一张预览渲染图。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。";
+    const share = job.shareUrl ? `\n🔗 在线版（可一键分享到 X）：${job.shareUrl}` : "";
+    return (
+      "✅ 您的闪卡已交付！交付物：一个 zip（解压后双击 index.html 即可交互查看，内含渲染图与源图层）和一张预览渲染图。请在订单页验收；如需修改，可在订单中提出一次修改请求（redo）。" +
+      share
+    );
   }
-  return "✅ Your holographic card has been delivered! Two files: a zip (unzip, double-click index.html for the interactive viewer; renders and source layers included) and a preview render. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order.";
+  const share = job.shareUrl ? `\n🔗 Online version (one-click share to X): ${job.shareUrl}` : "";
+  return (
+    "✅ Your holographic card has been delivered! Two files: a zip (unzip, double-click index.html for the interactive viewer; renders and source layers included) and a preview render. Please review and accept it on the order page; if you need changes, you can request one revision (redo) from the order." +
+    share
+  );
 }
 
 export { isChinese };

@@ -53,6 +53,23 @@ export interface Config {
     geminiModel: string;
   };
   termix: { chain: string; agentId: string; hasWalletKey: boolean; rpcUrl: string };
+  /**
+   * Public copy of the delivered card, hosted on S3 so buyers can share it on X.
+   * Never points at this server (see 2fdcf89): the bucket is a third-party host.
+   */
+  share: {
+    enabled: boolean;
+    bucket: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    /** S3_URL without trailing slashes, e.g. https://holo-card.s3.ap-southeast-1.amazonaws.com */
+    baseUrl: string;
+    keyPrefix: string;
+    /** Salts the share id so public URLs never contain the Termix order id. */
+    salt: string;
+    listingUrl: string;
+  };
   http: { port: number; host: string };
   jobs: { timeoutMinutes: number; concurrency: number; sweepIntervalSeconds: number; notifyWebhook: string };
   service: {
@@ -66,6 +83,30 @@ export interface Config {
 }
 
 let cached: Config | undefined;
+
+/**
+ * Sharing is opt-out by credentials: with no S3 keys (or a non-HTTPS bucket URL) the whole
+ * feature disappears and cards are still built, packaged and delivered exactly as before.
+ */
+function shareConfig(): Config["share"] {
+  const bucket = env("S3_BUCKET_NAME");
+  const region = env("S3_REGION");
+  const accessKeyId = env("S3_ACCESS_KEY_ID");
+  const secretAccessKey = env("S3_SECRET_ACCESS_KEY");
+  const baseUrl = env("S3_URL").replace(/\/+$/, "");
+  const wanted = env("SHARE_ENABLED", "1") !== "0";
+  return {
+    enabled: wanted && Boolean(bucket && region && accessKeyId && secretAccessKey) && baseUrl.startsWith("https://"),
+    bucket,
+    region,
+    accessKeyId,
+    secretAccessKey,
+    baseUrl,
+    keyPrefix: env("SHARE_KEY_PREFIX", "c").replace(/^\/+|\/+$/g, ""),
+    salt: env("SHARE_ID_SALT", env("A2A_AGENT_ID", "holo-card")),
+    listingUrl: env("LISTING_URL", "https://www.agent.family/listing?id=cmu568sn4007hsf01ux7y8wmr"),
+  };
+}
 
 export function getConfig(): Config {
   if (cached) return cached;
@@ -107,6 +148,7 @@ export function getConfig(): Config {
       hasWalletKey: Boolean(env("WALLET_KEY")),
       rpcUrl: env("A2A_RPC_URL"),
     },
+    share: shareConfig(),
     http: {
       port: envInt("HTTP_PORT", 8787),
       host: env("HTTP_HOST", "0.0.0.0"),
