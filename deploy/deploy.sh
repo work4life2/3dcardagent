@@ -37,8 +37,12 @@ done
 install -m 644 deploy/holo-card-agent.service /etc/systemd/system/holo-card-agent.service
 sed -i "s/User=%i/User=$SERVICE_USER/; s#/opt/holo-card-agent#$TARGET#g" /etc/systemd/system/holo-card-agent.service
 install -m 644 deploy/holo-card-autodeploy.service deploy/holo-card-autodeploy.timer /etc/systemd/system/
-if [ -f deploy/nginx.conf ] && [ -d /etc/nginx/sites-enabled ]; then
-  install -m 644 deploy/nginx.conf /etc/nginx/sites-available/holo-card-agent
+DASH="$(sed -nE 's#^DASHBOARD_PATH=/?([^/[:space:]]+)/?.*#/\1#p' .env.local 2>/dev/null | tail -1)"
+if [ -z "$DASH" ]; then
+  echo "[deploy] DASHBOARD_PATH is not set in .env.local (the operator UI needs a secret prefix, e.g. DASHBOARD_PATH=ops-$(openssl rand -hex 12)); nginx site not updated" >&2
+elif [ -d /etc/nginx/sites-enabled ]; then
+  install -m 644 deploy/nginx-http.conf /etc/nginx/conf.d/holo-card-agent.conf
+  sed "s#__DASH__#$DASH#g" deploy/nginx.conf > /etc/nginx/sites-available/holo-card-agent
   ln -sf /etc/nginx/sites-available/holo-card-agent /etc/nginx/sites-enabled/holo-card-agent
   rm -f /etc/nginx/sites-enabled/default
   nginx -t -q && systemctl reload nginx || echo "[deploy] nginx config invalid, not reloaded" >&2

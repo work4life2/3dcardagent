@@ -70,7 +70,7 @@ export interface Config {
     salt: string;
     listingUrl: string;
   };
-  http: { port: number; host: string };
+  http: { port: number; host: string; dashboardPath: string };
   jobs: { timeoutMinutes: number; concurrency: number; sweepIntervalSeconds: number; notifyWebhook: string };
   service: {
     title: string;
@@ -152,6 +152,8 @@ export function getConfig(): Config {
     http: {
       port: envInt("HTTP_PORT", 8787),
       host: env("HTTP_HOST", "0.0.0.0"),
+      // Secret prefix the operator UI + API + gallery live under (e.g. "/ops-3f9a…"); "" = at the root.
+      dashboardPath: env("DASHBOARD_PATH") ? "/" + env("DASHBOARD_PATH").replace(/^\/+|\/+$/g, "") : "",
     },
     jobs: {
       timeoutMinutes: envInt("JOB_TIMEOUT_MINUTES", 40),

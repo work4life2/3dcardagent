@@ -1,6 +1,6 @@
 /** Operator dashboard served at `/`: runtime settings (models), usage & spend, status and jobs. Plain HTML + fetch, no build step. */
-export function dashboardHtml(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+export function dashboardHtml(prefix: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${prefix}/">
 <title>Holo Card Agent</title>
 <style>
 :root{--fg:#111;--muted:#666;--line:#e6e6e6;--bg:#fff;--ok:#1a7f37;--bad:#b42318;--warn:#b26a00;--accent:#111}
@@ -33,7 +33,7 @@ td.mono,th.num,td.num{font-family:ui-monospace,Menlo,monospace;font-size:12px}th
 .panel .grp{position:sticky;top:0;background:#fafafa;color:var(--muted);font-size:11px;padding:6px 10px;border-bottom:1px solid var(--line)}.panel .it{padding:7px 10px;cursor:pointer;display:flex;flex-direction:column;gap:2px}.panel .it:hover,.panel .it.sel{background:#f2f2f2}
 .panel .it .id{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--fg)}.panel .it .lb{font-size:11px;color:var(--muted)}.panel .none{padding:10px;font-size:12px;color:var(--muted)}
 </style></head><body>
-<header><h1>Holo Card Agent</h1><nav><a href="/cards/">Gallery</a><a href="/api/usage">Usage JSON</a><a href="/api/jobs">Jobs JSON</a><a href="/health">Health</a></nav></header>
+<header><h1>Holo Card Agent</h1><nav><a href="cards/">Gallery</a><a href="api/usage">Usage JSON</a><a href="api/jobs">Jobs JSON</a><a href="health">Health</a></nav></header>
 <main>
 <section><h2>Status</h2><div class="grid" id="status"></div></section>
 <section><h2><span>Models — switch at runtime (applies to new sessions immediately)</span><span class="sub" id="catalog"></span></h2>
@@ -65,18 +65,18 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const usd=n=>n==null?'—':n===0?'$0':n<0.01?'$'+n.toFixed(5):'$'+n.toFixed(3);
 const num=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e4?(n/1e3).toFixed(0)+'k':String(n);
 let OPTIONS={llm:[],image:[]};
-async function loadStatus(){const s=await fetch('/api/status').then(r=>r.json());
+async function loadStatus(){const s=await fetch('api/status').then(r=>r.json());
  $('#status').innerHTML=[['Chain',s.chain],['Hosted agent',s.agentId||'— not set'],['Wallet',s.walletConfigured?'key mode':'WALLET_KEY missing'],['Image provider',s.imageProvider],['Listing',s.service.title+' · '+s.service.price+' '+s.service.currency+' · '+s.service.deliveryDays+'d'],['Jobs',s.jobs.total+' total · '+s.jobs.active+' active · '+s.jobs.failed+' failed'],['Uptime',Math.round(s.uptimeSeconds/60)+' min']]
  .map(([k,v])=>'<div class="kv"><b>'+k+'</b><span>'+esc(v)+'</span></div>').join('');}
 function showPrice(){const f=$('#models');for(const k of ['buildModel','chatModel','imageModel']){const v=f.elements[k].value;const list=k==='imageModel'?OPTIONS.image:OPTIONS.llm;const o=list.find(x=>x.id===v);
  f.querySelector('[data-price='+k+']').textContent=o?o.label:(v?'not in the catalog — will be tried as typed':'');}}
-async function loadOptions(refresh){const q=refresh?'?refresh=1':'';OPTIONS=await fetch('/api/models/options'+q).then(r=>r.json()).catch(()=>({llm:[],image:[]}));
+async function loadOptions(refresh){const q=refresh?'?refresh=1':'';OPTIONS=await fetch('api/models/options'+q).then(r=>r.json()).catch(()=>({llm:[],image:[]}));
  document.querySelectorAll('.combo .panel:not([hidden])').forEach(p=>renderPanel(p.previousElementSibling));
  $('#catalog').textContent=OPTIONS.catalogError?OPTIONS.catalogError:((OPTIONS.llm||[]).length+' text · '+(OPTIONS.image||[]).length+' image models · catalog '+(OPTIONS.catalogFetchedAt?new Date(OPTIONS.catalogFetchedAt).toLocaleTimeString():'—'));showPrice();}
-async function loadModels(){const m=await fetch('/api/models').then(r=>r.json());const f=$('#models');
+async function loadModels(){const m=await fetch('api/models').then(r=>r.json());const f=$('#models');
  for(const k of ['buildModel','chatModel','imageModel','thinking']){f.elements[k].value=m[k];const o=f.querySelector('[data-for='+k+']');o.textContent=m.overrides[k]?'runtime override (default: '+m.defaults[k]+')':'';}
  showPrice();}
-async function loadUsage(){const u=await fetch('/api/usage').then(r=>r.json()).catch(()=>null);if(!u)return;const g=u.relay,l=u.local;
+async function loadUsage(){const u=await fetch('api/usage').then(r=>r.json()).catch(()=>null);if(!u)return;const g=u.relay,l=u.local;
  const cells=[];cells.push(['Relay bill, this key, last 30 d','<span class="big">'+usd(g.totalUsed)+'</span>']);cells.push(['Relay remaining quota',g.remaining==null?'unlimited / not reported':usd(g.remaining)]);
  cells.push(['This agent today',usd(l.today.cost)+' · '+l.today.calls+' calls']);cells.push(['This agent, last 7 d',usd(l.last7d.cost)+' · '+l.last7d.calls+' calls']);cells.push(['This agent, all time',usd(l.allTime.cost)+' · '+num(l.allTime.input)+' in / '+num(l.allTime.output)+' out']);
  const k=l.byKind;cells.push(['By kind (all time)',['build','chat','image'].filter(x=>k[x]).map(x=>x+' '+usd(k[x].cost)).join(' · ')||'—']);
@@ -84,12 +84,12 @@ async function loadUsage(){const u=await fetch('/api/usage').then(r=>r.json()).c
  $('#spendsub').textContent=g.error?('relay: '+g.error):('relay '+g.baseUrl+' · '+g.startDate+' → '+g.endDate+', refreshed '+new Date(g.fetchedAt).toLocaleTimeString());
  $('#lmodel').innerHTML=l.byModel.slice(0,12).map(r=>'<tr><td class="mono">'+esc(r.model)+'</td><td class="num">'+r.calls+'</td><td class="num">'+num(r.input)+'</td><td class="num">'+num(r.output)+'</td><td class="num">'+num(r.cacheRead)+'</td><td class="num">'+usd(r.cost)+'</td></tr>').join('')||'<tr><td colspan="6" class="hint">No calls recorded yet.</td></tr>';
  $('#lday').innerHTML=l.byDay.slice(0,10).map(r=>'<tr><td class="mono">'+esc(r.day)+'</td><td class="num">'+r.calls+'</td><td class="num">'+num(r.input)+'</td><td class="num">'+num(r.output)+'</td><td class="num">'+usd(r.cost)+'</td></tr>').join('')||'<tr><td colspan="5" class="hint">—</td></tr>';}
-async function loadJobs(){const jobs=await fetch('/api/jobs').then(r=>r.json());
+async function loadJobs(){const jobs=await fetch('api/jobs').then(r=>r.json());
  $('#jobs').innerHTML=jobs.length?jobs.map(j=>{const cls=j.status==='failed'?'bad':['delivered','settled','built'].includes(j.status)?'ok':'warn';
-  const links=[];if(['built','delivering','delivered','settled'].includes(j.status)){links.push('<a href="/jobs/'+esc(j.id)+'/renders/hero.png" target="_blank">render</a>');if(j.prunedAt){links.push('<span title="old order: dist/web removed, renders + metadata kept">pruned</span>');}else{links.push('<a href="/cards/'+esc(j.id)+'/" target="_blank">viewer</a>');links.push('<a href="/jobs/'+esc(j.id)+'/dist/'+esc(j.id)+'-holo-card.zip">zip</a>');}}
+  const links=[];if(['built','delivering','delivered','settled'].includes(j.status)){links.push('<a href="jobs/'+esc(j.id)+'/renders/hero.png" target="_blank">render</a>');if(j.prunedAt){links.push('<span title="old order: dist/web removed, renders + metadata kept">pruned</span>');}else{links.push('<a href="cards/'+esc(j.id)+'/" target="_blank">viewer</a>');links.push('<a href="jobs/'+esc(j.id)+'/dist/'+esc(j.id)+'-holo-card.zip">zip</a>');}}
   if(j.shareUrl)links.push('<a href="'+esc(j.shareUrl)+'" target="_blank" rel="noopener">share page</a>');
   const u=j.usage;return '<tr><td class="mono">'+esc(j.id)+'</td><td class="mono">'+esc(j.orderId)+'</td><td><span class="pill '+cls+'">'+esc(j.status)+'</span>'+(j.error?'<div class="hint">'+esc(j.error.slice(0,140))+'</div>':'')+'</td><td class="num">'+(u?num(u.input)+' / '+num(u.output)+'<div class="hint">'+u.calls+' calls</div>':'—')+'</td><td class="num">'+(u?usd(u.cost):'—')+'</td><td class="mono">'+esc(j.updatedAt.replace('T',' ').slice(0,19))+'</td><td>'+links.join(' · ')+'</td></tr>';}).join(''):'<tr><td colspan="7" class="hint">No jobs yet.</td></tr>';}
-async function save(patch){const r=await fetch('/api/models',{method:'POST',headers:headers(),body:JSON.stringify(patch)});const m=$('#msg');
+async function save(patch){const r=await fetch('api/models',{method:'POST',headers:headers(),body:JSON.stringify(patch)});const m=$('#msg');
  if(r.status===403){m.className='bad';m.textContent='Forbidden: enter the ADMIN_TOKEN (saved in this browser).';return;}
  if(!r.ok){m.className='bad';m.textContent=await r.text();return;}if(token())localStorage.setItem('adminToken',token());m.className='ok';m.textContent='Saved — new sessions use these models.';await loadModels();}
 $('#models').addEventListener('submit',e=>e.preventDefault());$('#models').addEventListener('input',showPrice);

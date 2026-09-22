@@ -77,15 +77,15 @@ function serveFile(res: http.ServerResponse, root: string, rel: string) {
   }
 }
 
-function galleryHtml(): string {
+function galleryHtml(prefix: string): string {
   const jobs = listJobs().filter((j) => ["built", "delivering", "delivered", "settled"].includes(j.status));
   const cards = jobs
     .map((j) => {
       const hero = fs.existsSync(path.join(j.dir, "renders", "hero.png")) ? `/cards/${j.id}/../renders/hero.png` : "";
-      return `<a class="card" href="/cards/${j.id}/"><div class="thumb">${hero ? `<img src="/jobs/${j.id}/renders/hero.png" alt="">` : ""}</div><div class="meta"><b>${j.id}</b><span>${j.status}</span></div></a>`;
+      return `<a class="card" href="cards/${j.id}/"><div class="thumb">${hero ? `<img src="jobs/${j.id}/renders/hero.png" alt="">` : ""}</div><div class="meta"><b>${j.id}</b><span>${j.status}</span></div></a>`;
     })
     .join("");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Holo Card Gallery</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${prefix}/"><title>Holo Card Gallery</title>
 <style>body{margin:0;font-family:system-ui,sans-serif;background:#fff;color:#111}header{padding:24px;border-bottom:1px solid #eee}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:24px}.card{display:block;text-decoration:none;color:inherit;border:1px solid #eee;border-radius:12px;overflow:hidden}.thumb{aspect-ratio:1080/1500;background:#f4f4f4}.thumb img{width:100%;height:100%;object-fit:cover;display:block}.meta{display:flex;justify-content:space-between;padding:10px 12px;font-size:13px}</style></head>
 <body><header><h1>Holo Card Gallery</h1><p>AI-generated 3D holographic collectible cards · click a card to open the interactive viewer</p></header><main>${cards || "<p>No delivered cards yet.</p>"}</main></body></html>`;
 }
@@ -95,7 +95,13 @@ export function startHttpServer(): http.Server {
   const jobsRoot = path.join(cfg.dataDir, "jobs");
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    const p = decodeURIComponent(url.pathname);
+    let p = decodeURIComponent(url.pathname);
+    // Everything except /health lives under the secret DASHBOARD_PATH prefix (nginx also 404s the rest).
+    const prefix = cfg.http.dashboardPath;
+    if (prefix && p !== "/health" && p !== "/healthz") {
+      if (p !== prefix && !p.startsWith(prefix + "/")) return send(res, 404, "not found", "text/plain");
+      p = p.slice(prefix.length) || "/";
+    }
     if (p === "/health" || p === "/healthz") {
       return send(res, 200, JSON.stringify({ ok: true, chain: cfg.termix.chain, agentId: cfg.termix.agentId || null, at: new Date().toISOString() }));
     }
@@ -159,14 +165,14 @@ export function startHttpServer(): http.Server {
       const j = loadJob(m[1]);
       return j ? send(res, 200, JSON.stringify(j)) : send(res, 404, "{}");
     }
-    if (p === "/" || p === "/admin" || p === "/admin/") return send(res, 200, dashboardHtml(), "text/html; charset=utf-8");
-    if (p === "/cards" || p === "/cards/") return send(res, 200, galleryHtml(), "text/html; charset=utf-8");
+    if (p === "/" || p === "/admin" || p === "/admin/") return send(res, 200, dashboardHtml(prefix), "text/html; charset=utf-8");
+    if (p === "/cards" || p === "/cards/") return send(res, 200, galleryHtml(prefix), "text/html; charset=utf-8");
     const card = p.match(/^\/cards\/([^/]+)(\/.*)?$/);
     if (card) {
       const job = loadJob(card[1]);
       if (!job) return send(res, 404, "not found", "text/plain");
       if (!card[2]) {
-        res.writeHead(302, { location: `/cards/${card[1]}/` });
+        res.writeHead(302, { location: `${prefix}/cards/${card[1]}/` });
         return res.end();
       }
       return serveFile(res, path.join(job.dir, "web"), card[2] || "/");
