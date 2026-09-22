@@ -149,9 +149,9 @@ export function startHttpServer(): http.Server {
     }
     if (p === "/api/jobs") {
       const usage = new Map(summarizeUsage().byJob.map((j) => [j.jobId, j]));
-      return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, error, shareUrl }) => {
+      return send(res, 200, JSON.stringify(listJobs().map(({ id, orderId, status, createdAt, updatedAt, error, shareUrl, prunedAt }) => {
         const u = usage.get(id);
-        return { id, orderId, status, createdAt, updatedAt, error, shareUrl, usage: u ? { calls: u.calls, input: u.input, output: u.output, cacheRead: u.cacheRead, cost: u.cost } : null };
+        return { id, orderId, status, createdAt, updatedAt, error, shareUrl, prunedAt, usage: u ? { calls: u.calls, input: u.input, output: u.output, cacheRead: u.cacheRead, cost: u.cost } : null };
       })));
     }
     const m = p.match(/^\/api\/jobs\/([^/]+)$/);

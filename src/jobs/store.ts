@@ -41,6 +41,8 @@ export interface Job {
    * preview that leaked the host's IP was removed in 2fdcf89 and stays removed.
    */
   shareUrl?: string;
+  /** Set by jobs/prune.ts once dist/, web/, assets/ and card.blend were removed; only renders + metadata remain. */
+  prunedAt?: string;
   artifacts: JobArtifact[];
   txHashes: Record<string, string>;
   notes: string[];

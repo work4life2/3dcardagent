@@ -23,6 +23,8 @@ Usage:
   holo-card-agent deliver <orderId>           process / retry one order manually
   holo-card-agent publish <jobId>             re-package a built job and push its public share page to S3
   holo-card-agent jobs                        list jobs
+  holo-card-agent prune                       keep the newest 100 orders complete; strip older finished ones to renders + metadata
+                                              (serve does this hourly by itself)
   holo-card-agent pi [args...]                interactive pi with both skills and the image tools loaded
 `);
   process.exit(2);
@@ -50,6 +52,8 @@ async function main() {
         process.exit(1);
       }
       startHttpServer();
+      const { startPruneSchedule } = await import("./jobs/prune.js");
+      startPruneSchedule();
       const loop = new HostingLoop(cfg.termix.agentId);
       const stop = () => {
         log.info("shutting down after current work...");
@@ -191,6 +195,13 @@ async function main() {
         const u = usageByJob.get(j.id);
         process.stdout.write(`${j.id.padEnd(40)} ${j.status.padEnd(11)} ${j.orderId.padEnd(30)} ${j.updatedAt}  ${u ? `${fmtUsd(u.cost)} (${u.calls} calls)` : "-"}${j.error ? "  ✗ " + j.error.slice(0, 80) : ""}\n`);
       }
+      break;
+    }
+    case "prune": {
+      // Same hygiene `serve` runs hourly: keep the newest 100 orders complete, strip older ones to renders + metadata.
+      const { pruneOldJobs, KEEP_FULL } = await import("./jobs/prune.js");
+      const r = pruneOldJobs();
+      process.stdout.write(`kept newest ${KEEP_FULL} jobs complete; pruned ${r.pruned.length}, freed ${(r.freedBytes / 1048576).toFixed(0)} MB\n`);
       break;
     }
     case "usage": {
