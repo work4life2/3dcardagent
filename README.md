@@ -117,9 +117,13 @@ sudo -u holocard bash -c 'cd /opt/holo-card-agent && npm run setup'     # three.
 systemctl start holo-card-agent
 ```
 
-nginx listens on :80: only `/health` is public; everything else (dashboard, `/cards/` gallery, renders, `/api/*`) is behind
-HTTP basic auth. Buyers are never given a link to this server (its address stays private); they receive the self-contained zip. Push to `main` → `deploy/deploy.sh` runs within a minute (`npm ci`, build,
-restart); `journalctl -u holo-card-autodeploy` shows each deploy, `deploy/deploy.sh --force` redeploys by hand.
+nginx listens on :80: only `/health` is public. The operator UI, `/cards/` gallery, renders and `/api/*` live under a
+secret prefix (`DASHBOARD_PATH` in `.env.local`, e.g. `ops-<24 hex>`; the live one is in `pass/dashboard-path.txt`) behind
+HTTP basic auth and a 10 req/s per-IP limit; every other path is a bare 404, so a visitor hitting the IP sees nothing.
+fail2ban bans IPs that keep failing the auth or the limit; ufw allows 22/80/443 only; SSH is key-only.
+Buyers are never given a link to this server (its address stays private); they receive the self-contained zip.
+Push to `main` → `deploy/deploy.sh` runs within a minute (`npm ci`, build, restart, re-render nginx from `.env.local`);
+`journalctl -u holo-card-autodeploy` shows each deploy, `deploy/deploy.sh --force` redeploys by hand.
 
 ### systemd (bare metal)
 
@@ -141,6 +145,8 @@ docker compose -f deploy/docker-compose.yml up -d
 The container uses the host network; the gallery is on `:8787`. Both `.env` and `.env.local` are read.
 
 ### HTTP endpoints
+
+All paths except `/health` are relative to `DASHBOARD_PATH` when it is set (the pages use `<base href>`).
 
 | Path | Purpose |
 |---|---|
