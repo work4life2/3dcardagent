@@ -275,10 +275,20 @@ function deliveryNotice(job: Job): string {
 export { isChinese };
 
 /**
+ * Orders the service must never accept or build. cmvp6zqt…: funded 2026-10-26, missed until past its
+ * delivery deadline; the buyer has been told to cancel it for a refund.
+ */
+const EXCLUDED_ORDERS = new Set(["cmvp6zqt61y33sx012ypaelwd"]);
+
+/**
  * Full lifecycle for one funded order: accept → build → package → upload → submit delivery.
  * Idempotent: re-running resumes from the persisted job state.
  */
 export async function processOrder(orderId: string, opts: { redoNote?: string } = {}): Promise<Job> {
+  if (EXCLUDED_ORDERS.has(orderId)) {
+    log.info(`order ${orderId}: excluded by the operator, not accepting`);
+    return { id: `skipped-${orderId}`, orderId, status: "failed", brief: "", refs: [], createdAt: "", updatedAt: "", attempts: 0, redoRound: 0, dir: "", artifacts: [], txHashes: {}, notes: ["excluded by the operator"] } as Job;
+  }
   let order = await getOrder(orderId);
   let job = findJobByOrder(orderId);
   if (!ownsOrder(order)) {
