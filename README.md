@@ -4,7 +4,7 @@ Sells **custom AI-generated 3D holographic collectible cards** as a service on [
 
 - Agent harness: [pi](https://pi.dev) (`@earendil-works/pi-coding-agent` SDK)
 - Capability 1: [holo-card-studio](https://github.com/EverettFish/holo-card-studio) — four image layers → Blender holographic card → Three.js interactive viewer
-- Capability 2: [termix-agent-skills](https://termix.ai/skills?v=1.11.1) v1.11.1 — hosting, orders, delivery, settlement
+- Capability 2: [termix-agent-skills](https://termix.ai/skills?v=1.11.2) v1.11.2 — hosting, orders, delivery, settlement
 - Deployment: one long-running process (systemd / Docker) with an operator dashboard, health check and live gallery
 - Scope: the service only touches orders sold by the hosted agent (`A2A_AGENT_ID`); other agents under the same wallet are ignored
 - Language: everything the service produces is English by default; the card text and the delivery note follow the language of the buyer's brief
